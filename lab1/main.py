@@ -7,16 +7,21 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.tabs = QTabWidget()
         self.setCentralWidget(self.tabs)
+
         self.ping_tab = QWidget()
         self.ipconfig_tab = QWidget()
         self.pathping_tab = QWidget()
         self.netstat_tab = QWidget()
+        
         self.tabs.addTab(self.ping_tab, "Ping")
         self.tabs.addTab(self.ipconfig_tab, "IPConfig")
         self.tabs.addTab(self.pathping_tab, "PathPing")
         self.tabs.addTab(self.netstat_tab, "NetStat")
+
         self.create_ping_tab()
         self.create_ipconfig_tab()
+        self.create_pathping_tab()
+        self.create_netstat_tab()
 # Метод для создания вкладки Ping
     def create_ping_tab(self):
         layout = QVBoxLayout()
@@ -59,6 +64,44 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.result_text_ipconfig)
 
         self.ipconfig_tab.setLayout(layout)
+    # Метод для создания вкладки PathPing
+    def create_pathping_tab(self):
+        layout = QVBoxLayout()
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(10)
+
+        label = QLabel("IP-адрес или домен:")
+        self.pathping_input = QLineEdit()
+        self.pathping_input.setPlaceholderText("Введите IP-адрес или домен:")
+
+        button = QPushButton("Проверить")
+        button.clicked.connect(self.pathping_run)
+
+        input_layout = QHBoxLayout()
+        input_layout.addWidget(label)
+        input_layout.addWidget(self.pathping_input)
+        input_layout.addWidget(button)
+        layout.addLayout(input_layout)
+
+        self.result_text_pathping = QTextEdit()
+        self.result_text_pathping.setReadOnly(True)
+        layout.addWidget(self.result_text_pathping)
+
+        self.pathping_tab.setLayout(layout)
+    def create_netstat_tab(self):
+        layout = QVBoxLayout()
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(10)
+
+        button = QPushButton("Получить информацию")
+        button.clicked.connect(self.netstat_run)
+        layout.addWidget(button)
+
+        self.result_text_netstat = QTextEdit()
+        self.result_text_netstat.setReadOnly(True)
+        layout.addWidget(self.result_text_netstat)
+
+        self.netstat_tab.setLayout(layout)
     # Метод для выполнения команды ping
     def ping_run(self):
         ip = self.ip_input.text().strip()
@@ -81,6 +124,28 @@ class MainWindow(QMainWindow):
             self.result_text_ipconfig.setText("Превышено время ожидания.")
         except Exception as error:
             self.result_text_ipconfig.setText(f"Ошибка: {error}")
+    # Метод для выполнения команды pathping
+    def pathping_run(self):
+        ip = self.pathping_input.text().strip()
+        if not ip:
+            self.result_text_pathping.setText("Пожалуйста, введите IP-адрес или домен.")
+            return
+        try:
+            result = subprocess.run(["pathping", "-n", ip], capture_output=True, text=True, timeout=60, encoding='cp866', errors='replace')
+            self.result_text_pathping.setPlainText(result.stdout)
+        except subprocess.TimeoutExpired:
+            self.result_text_pathping.setText("Превышено время ожидания.")
+        except Exception as error:
+            self.result_text_pathping.setText(f"Ошибка: {error}")
+    # Метод для выполнения команды netstat
+    def netstat_run(self):
+        try:
+            result = subprocess.run(["netstat", "-ano"], capture_output=True, text=True, timeout=30, encoding='cp866', errors='replace')
+            self.result_text_netstat.setPlainText(result.stdout)
+        except subprocess.TimeoutExpired:
+            self.result_text_netstat.setText("Превышено время ожидания.")
+        except Exception as error:
+            self.result_text_netstat.setText(f"Ошибка: {error}")
 # Запуска приложения
 app = QApplication(sys.argv)
 window = MainWindow()
