@@ -73,6 +73,10 @@ class MainWindow(QMainWindow):
         self.ping_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         layout.addWidget(self.ping_table)
 
+        self.result_text = QTextEdit()
+        self.result_text.setReadOnly(True)
+        layout.addWidget(self.result_text)
+
         self.ping_tab.setLayout(layout)
     def process_ping_result(self, result):
         ip_result = re.search(r"Ответ от ([\d\.]+):", result)
@@ -93,12 +97,15 @@ class MainWindow(QMainWindow):
         self.ping_table.insertRow(row)
         self.ping_table.setItem(row, 0, QTableWidgetItem(str(row + 1)))
         self.ping_table.setItem(row, 1, QTableWidgetItem(result["ip"]))
-        self.ping_table.setItem(row, 2, QTableWidgetItem(str(result["bytes"])))
-        self.ping_table.setItem(row, 3, QTableWidgetItem(str(result["time"])))
-        self.ping_table.setItem(row, 4, QTableWidgetItem(str(result["ttl"])))
+        self.ping_table.setItem(row, 2, QTableWidgetItem(str(result["bytes"]) if result["bytes"] is not None else "---"))
+        self.ping_table.setItem(row, 3, QTableWidgetItem(str(result["time"]) if result["time"] is not None else "---"))
+        self.ping_table.setItem(row, 4, QTableWidgetItem(str(result["ttl"]) if result["ttl"] is not None else "---"))
         self.ping_table.setItem(row, 5, QTableWidgetItem(result["status"]))
     # Метод для выполнения команды ping
     def ping_run(self):
+        receive_count = 0
+        lost_count = 0
+        total_time = 0
         # Получение введенных пользователем данных
         ip = self.ip_input.text().strip()
         if not ip:
@@ -125,6 +132,28 @@ class MainWindow(QMainWindow):
                 ping_result = self.process_ping_result(output)
                 if ping_result:
                     self.add_ping_result(ping_result)
+                    receive_count += 1
+                    total_time += ping_result["time"]
+                elif "Превышен интервал ожидания" in output:
+                    self.add_ping_result({
+                        "ip": ip,
+                        "bytes": None,
+                        "time": None,
+                        "ttl": None,
+                        "status": "Потеря пакета"
+                    })
+                    lost_count += 1
+            # Вывод статистики по результатам ping
+            loss_percentage = (lost_count / count) * 100
+            if receive_count > 0:
+                average_time = total_time / receive_count
+            else:
+                average_time = 0
+            self.result_text.setText(f"Отправлено: {count}\n"
+                                     f"Получено: {receive_count}\n"
+                                     f"Потеряно: {lost_count}\n"
+                                     f"Процент потерь: {loss_percentage:.2f}%\n"
+                                     f"Среднее время: {average_time:.2f} мс")
         except subprocess.TimeoutExpired:
             self.result_text.setText("Превышено время ожидания.")
         except Exception as error:
