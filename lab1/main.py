@@ -78,6 +78,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.result_text)
 
         self.ping_tab.setLayout(layout)
+    # Метод для обработки результата ping
     def process_ping_result(self, result):
         ip_result = re.search(r"Ответ от ([\d\.]+):", result)
         bytes_result = re.search(r"байт=(\d+)", result)
@@ -92,6 +93,7 @@ class MainWindow(QMainWindow):
                 "status": "Успешно"
             }
         return None
+    # Метод для добавления результата ping в таблицу
     def add_ping_result(self, result):
         row = self.ping_table.rowCount()
         self.ping_table.insertRow(row)
@@ -170,16 +172,48 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(button)
 
+        self.adapter_tabs = QTabWidget()
+        layout.addWidget(self.adapter_tabs)
+        
         self.result_text_ipconfig = QTextEdit()
         self.result_text_ipconfig.setReadOnly(True)
         layout.addWidget(self.result_text_ipconfig)
 
         self.ipconfig_tab.setLayout(layout)
+    # Метод для обработки результата ipconfig
+    def process_ipconfig_result(self, result):
+        adapters = []
+        current_adapter = {}
+        for adapter in result.splitlines():
+            line = adapter.strip()
+            if (line.lower().startswith("адаптер ") or line.lower().startswith("неизвестный адаптер ")) and line.endswith(":"):
+                name = line[:-1]
+                current_adapter = {"name": name}
+                adapters.append(current_adapter)
+            else:
+                if ":" in line and current_adapter:
+                    key, value = line.split(":", 1)
+                    key = key.replace(".", "").strip()
+                    current_adapter[key.strip()] = value.strip()
+        return adapters
+    # Метод для отображения результатов ipconfig
+    def display_ipconfig_result(self, adapters):
+        self.adapter_tabs.clear()
+        for adapter in adapters:
+            tab = QWidget()
+            layout = QVBoxLayout()
+            for key, value in adapter.items():
+                if key != "name":
+                    label = QLabel(f"{key}: {value}")
+                    layout.addWidget(label)
+            tab.setLayout(layout)
+            self.adapter_tabs.addTab(tab, adapter["name"])
     # Метод для выполнения команды ipconfig
     def ipconfig_run(self):
         try:
             result = subprocess.run(["ipconfig", "/all"], capture_output=True, text=True, timeout=15, encoding='cp866', errors='replace')
-            self.result_text_ipconfig.setPlainText(result.stdout)
+            adapters = self.process_ipconfig_result(result.stdout)
+            self.display_ipconfig_result(adapters)
         except subprocess.TimeoutExpired:
             self.result_text_ipconfig.setText("Превышено время ожидания.")
         except Exception as error:
