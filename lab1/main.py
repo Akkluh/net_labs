@@ -184,17 +184,25 @@ class MainWindow(QMainWindow):
     def process_ipconfig_result(self, result):
         adapters = []
         current_adapter = {}
+        last_key = None
         for adapter in result.splitlines():
             line = adapter.strip()
+            indent = len(adapter) - len(adapter.lstrip())
             if (line.lower().startswith("адаптер ") or line.lower().startswith("неизвестный адаптер ")) and line.endswith(":"):
                 name = line[:-1]
                 current_adapter = {"name": name}
                 adapters.append(current_adapter)
+                last_key = None
             else:
-                if ":" in line and current_adapter:
+                if  indent == 3 and current_adapter:
                     key, value = line.split(":", 1)
                     key = key.replace(".", "").strip()
                     current_adapter[key.strip()] = value.strip()
+                    last_key = key.strip()
+                elif indent > 3 and current_adapter and last_key:
+                    current_adapter[last_key] += ", " + line.strip()
+                elif not line:
+                    continue
         return adapters
     # Метод для отображения результатов ipconfig
     def display_ipconfig_result(self, adapters):
@@ -243,6 +251,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.result_text_pathping)
 
         self.pathping_tab.setLayout(layout)
+    
     # Метод для выполнения команды pathping
     def pathping_run(self):
         ip = self.pathping_input.text().strip()
