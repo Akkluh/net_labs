@@ -2,7 +2,7 @@ import sys
 import subprocess
 from PySide6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QLabel, 
                                QPushButton, QLineEdit, QHBoxLayout, QTextEdit, QFormLayout, QSpinBox, 
-                               QTableWidget, QHeaderView, QTableWidgetItem)
+                               QTableWidget, QHeaderView, QTableWidgetItem, QCheckBox)
 import re
 # Класс главного окна приложения
 class MainWindow(QMainWindow):
@@ -246,12 +246,19 @@ class MainWindow(QMainWindow):
         input_layout.addWidget(button)
         layout.addLayout(input_layout)
 
+        self.pathping_table = QTableWidget()
+        self.pathping_table.setColumnCount(5)
+        self.pathping_table.setHorizontalHeaderLabels(["№", "IP-адрес", "Потери (%)", "Время (мс)", "Результат"])
+        self.pathping_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.pathping_table.verticalHeader().setVisible(False)
+        self.pathping_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+
+
         self.result_text_pathping = QTextEdit()
         self.result_text_pathping.setReadOnly(True)
         layout.addWidget(self.result_text_pathping)
 
         self.pathping_tab.setLayout(layout)
-    
     # Метод для выполнения команды pathping
     def pathping_run(self):
         ip = self.pathping_input.text().strip()
