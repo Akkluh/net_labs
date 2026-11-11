@@ -2,7 +2,7 @@ import sys
 import subprocess
 from PySide6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QLabel, 
                                QPushButton, QLineEdit, QHBoxLayout, QTextEdit, QFormLayout, QSpinBox, 
-                               QTableWidget, QHeaderView, QTableWidgetItem, QCheckBox)
+                               QTableWidget, QHeaderView, QTableWidgetItem, QCheckBox, QComboBox, QGridLayout)
 import re
 # Класс главного окна приложения
 class MainWindow(QMainWindow):
@@ -58,9 +58,63 @@ class MainWindow(QMainWindow):
         self.ping_timeout.setRange(1, 10000)
         self.ping_timeout.setValue(1000)
 
+        # Время жизни пакета (параметр -i)
+        self.ping_ttl = QSpinBox()
+        self.ping_ttl.setRange(1, 255)
+        self.ping_ttl.setValue(128)
+
+        # Флаг "не фрагментировать" (параметр -f)
+        self.ping_dont_fragment = QCheckBox("Не фрагментировать пакеты (-f)")
+
+        # Определение имени узла по адресу (параметр -a)
+        self.ping_get_name = QCheckBox("Определять имя узла (-a)")
+
+        # Флаг постоянной проверки (параметр -t)
+        self.ping_t = QCheckBox("Постоянная проверка (-t)")
+
+        # Запись маршрута (параметр -r)
+        self.ping_r = QCheckBox("Запись маршрута (-r), узлов: ")
+        self.ping_r_count = QSpinBox()
+        self.ping_r_count.setRange(1, 9)
+        self.ping_r_count.setValue(4)
+        self.ping_r_count.setEnabled(False)
+        self.ping_r.toggled.connect(self.ping_r_count.setEnabled)
+
+        # Метки времени (параметр -s)
+        self.ping_s = QCheckBox("Метки времени (параметр -s), узлов: ")
+        self.ping_s_count = QSpinBox()
+        self.ping_s_count.setRange(1, 4)
+        self.ping_s_count.setValue(4)
+        self.ping_s_count.setEnabled(False)
+        self.ping_s.toggled.connect(self.ping_s_count.setEnabled)
+
+        # Маршрут по списку узлов (параметры -j/-k)
+        self.ping_route_type = QComboBox()
+        self.ping_route_type.addItems(["Нет", "Нестрогий маршрут (-j)", "Строгий маршрут (-k)"])
+        self.ping_line_for_route = QLineEdit()
+        self.ping_line_for_route.setPlaceholderText("IP-адресса через пробел")
+
         form_layout.addRow("Количество пакетов:", self.ping_count)
         form_layout.addRow("Размер пакета (байт):", self.ping_size)
         form_layout.addRow("Время ожидания (мс):", self.ping_timeout)
+        form_layout.addRow("Время жизни пакета (TTL):", self.ping_ttl)
+        form_layout.addRow(self.ping_dont_fragment)
+        form_layout.addRow(self.ping_get_name)
+        form_layout.addRow(self.ping_t)
+
+        r_layout = QHBoxLayout()
+        r_layout.addWidget(self.ping_r)
+        r_layout.addWidget(self.ping_r_count)
+        form_layout.addRow(r_layout)
+
+        s_layout = QHBoxLayout()
+        s_layout.addWidget(self.ping_s)
+        s_layout.addWidget(self.ping_s_count)
+        form_layout.addRow(s_layout)
+
+        form_layout.addRow("Маршрут по списку узлов:", self.ping_route_type)
+        form_layout.addRow("Список узлов:", self.ping_line_for_route)
+
         layout.addLayout(form_layout)
 
         layout.addWidget(button)
@@ -78,13 +132,16 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.result_text)
 
         self.ping_tab.setLayout(layout)
-    # Метод для обработки результата ping
+    # Метод для обработки одной строки вывода ping
     def process_ping_result(self, result):
-        ip_result = re.search(r"Ответ от ([\d\.]+):", result)
+        ip_result = re.search(r"Ответ от (.+?): (.*)", result)
+        if not ip_result:
+            return None
         bytes_result = re.search(r"байт=(\d+)", result)
         time_result = re.search(r"время[=<](\d+)", result)
         ttl_result = re.search(r"TTL=(\d+)", result)
-        if ip_result and bytes_result and time_result and ttl_result:
+        # Успешный ответ: есть и байты, и время, и TTL
+        if bytes_result and time_result and ttl_result:
             return {
                 "ip": ip_result.group(1),
                 "bytes": int(bytes_result.group(1)),
@@ -92,7 +149,13 @@ class MainWindow(QMainWindow):
                 "ttl": int(ttl_result.group(1)),
                 "status": "Успешно"
             }
-        return None
+        return {
+            "ip": ip_result.group(1),
+            "bytes": None,
+            "time": None,
+            "ttl": None,
+            "status": ip_result.group(2).strip().rstrip(".")
+        }
     # Метод для добавления результата ping в таблицу
     def add_ping_result(self, result):
         row = self.ping_table.rowCount()
@@ -106,7 +169,6 @@ class MainWindow(QMainWindow):
     # Метод для выполнения команды ping
     def ping_run(self):
         receive_count = 0
-        lost_count = 0
         total_time = 0
         # Получение введенных пользователем данных
         ip = self.ip_input.text().strip()
@@ -114,28 +176,27 @@ class MainWindow(QMainWindow):
             self.result_text.setText("Пожалуйста, введите IP-адрес или домен.")
             return
         count = self.ping_count.value()
-        if count <= 0:
-            self.result_text.setText("Количество пакетов должно быть больше нуля.")
-            return
         size = self.ping_size.value()
-        if size <= 0:
-            self.result_text.setText("Размер пакета должен быть больше нуля.")
-            return
         timeout = self.ping_timeout.value()
-        if timeout <= 0:
-            self.result_text.setText("Время ожидания должно быть больше нуля.")
-            return
+        ttl = self.ping_ttl.value()
         self.ping_table.setRowCount(0)  # Очистка таблицы перед новым запуском
+        # Формирование команды ping с указанными параметрами
+        command = ["ping", "-n", str(count), "-l", str(size), "-w", str(timeout), "-i", str(ttl)]
+        if self.ping_dont_fragment.isChecked():
+            command.append("-f")
+        if self.ping_get_name.isChecked():
+            command.append("-a")
+        command.append(ip)
+        max_time = count * (timeout / 1000 + 1) + 10
         try:
-            # Выполнение команды ping с указанными параметрами
-            result = subprocess.run(["ping", "-n", str(count), "-l", str(size), "-w", str(timeout), ip], capture_output=True, text=True, timeout=15, encoding='cp866', errors='replace')
-            # Разделение вывода на строки и обработка каждой строки
+            result = subprocess.run(command, capture_output=True, text=True, timeout=max_time, encoding='cp866', errors='replace')
             for output in result.stdout.splitlines():
                 ping_result = self.process_ping_result(output)
                 if ping_result:
                     self.add_ping_result(ping_result)
-                    receive_count += 1
-                    total_time += ping_result["time"]
+                    if ping_result["status"] == "Успешно":
+                        receive_count += 1
+                        total_time += ping_result["time"]
                 elif "Превышен интервал ожидания" in output:
                     self.add_ping_result({
                         "ip": ip,
@@ -144,8 +205,11 @@ class MainWindow(QMainWindow):
                         "ttl": None,
                         "status": "Потеря пакета"
                     })
-                    lost_count += 1
+            if self.ping_table.rowCount() == 0:
+                self.result_text.setText(result.stdout)
+                return
             # Вывод статистики по результатам ping
+            lost_count = count - receive_count
             loss_percentage = (lost_count / count) * 100
             if receive_count > 0:
                 average_time = total_time / receive_count
@@ -232,6 +296,8 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout()
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(10)
+        input_layout = QHBoxLayout()
+        form_layout = QFormLayout()
 
         label = QLabel("IP-адрес или домен:")
         self.pathping_input = QLineEdit()
@@ -240,34 +306,130 @@ class MainWindow(QMainWindow):
         button = QPushButton("Проверить")
         button.clicked.connect(self.pathping_run)
 
-        input_layout = QHBoxLayout()
         input_layout.addWidget(label)
         input_layout.addWidget(self.pathping_input)
-        input_layout.addWidget(button)
         layout.addLayout(input_layout)
 
+        # Максимальное число прыжков (параметр -h)
+        self.pathping_hops = QSpinBox()
+        self.pathping_hops.setRange(1, 255)
+        self.pathping_hops.setValue(30)
+
+        # Число запросов на каждый узел (параметр -q)
+        self.pathping_queries = QSpinBox()
+        self.pathping_queries.setRange(1, 1000)
+        self.pathping_queries.setValue(10)
+
+        # Пауза между запросами в мс (параметр -p)
+        self.pathping_period = QSpinBox()
+        self.pathping_period.setRange(1, 10000)
+        self.pathping_period.setValue(250)
+
+        # Время ожидания ответа в мс (параметр -w)
+        self.pathping_timeout = QSpinBox()
+        self.pathping_timeout.setRange(1, 10000)
+        self.pathping_timeout.setValue(3000)
+
+        # Не определять имена узлов (параметр -n)
+        self.pathping_no_resolve = QCheckBox("Не определять имена узлов (-n)")
+        self.pathping_no_resolve.setChecked(True)
+
+        form_layout.addRow("Максимум прыжков:", self.pathping_hops)
+        form_layout.addRow("Число запросов на узел:", self.pathping_queries)
+        form_layout.addRow("Пауза между запросами (мс):", self.pathping_period)
+        form_layout.addRow("Время ожидания (мс):", self.pathping_timeout)
+        form_layout.addRow(self.pathping_no_resolve)
+        layout.addLayout(form_layout)
+
+        layout.addWidget(button)
+
         self.pathping_table = QTableWidget()
-        self.pathping_table.setColumnCount(5)
-        self.pathping_table.setHorizontalHeaderLabels(["№", "IP-адрес", "Потери (%)", "Время (мс)", "Результат"])
+        self.pathping_table.setColumnCount(6)
+        self.pathping_table.setHorizontalHeaderLabels(["Прыжок", "IP-адрес", "Время (мс)", "Потери до узла (%)", "Потери на узле (%)", "Результат"])
         self.pathping_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.pathping_table.verticalHeader().setVisible(False)
         self.pathping_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-
+        layout.addWidget(self.pathping_table)
 
         self.result_text_pathping = QTextEdit()
         self.result_text_pathping.setReadOnly(True)
         layout.addWidget(self.result_text_pathping)
 
         self.pathping_tab.setLayout(layout)
+    # Метод для обработки одной строки вывода pathping
+    def process_pathping_result(self, result):
+        # Строка статистики: "  1    2мс     0/ 100 =  0%     0/ 100 =  0%  192.168.1.1"
+        # Время может быть "---", если ответа не было
+        stat_result = re.search(r"^\s*(\d+)\s+(?:<?(\d+)\s*мс|-)\s+\d+/\s*\d+\s*=\s*(\d+)%\s+\d+/\s*\d+\s*=\s*(\d+)%\s+(.+)$", result)
+        if not stat_result:
+            return None
+        loss_source = int(stat_result.group(3))
+        loss_node = int(stat_result.group(4))
+        # Вывод о работе узла по потерям на самом узле
+        if loss_node == 100:
+            status = "Нет ответа"
+        elif loss_node > 0:
+            status = "Есть потери"
+        else:
+            status = "Норма"
+        return {
+            "hop": int(stat_result.group(1)),
+            "ip": stat_result.group(5).strip(),
+            "time": int(stat_result.group(2)) if stat_result.group(2) else None,
+            "loss_source": loss_source,
+            "loss_node": loss_node,
+            "status": status
+        }
+    # Метод для добавления результата pathping в таблицу
+    def add_pathping_result(self, result):
+        row = self.pathping_table.rowCount()
+        self.pathping_table.insertRow(row)
+        self.pathping_table.setItem(row, 0, QTableWidgetItem(str(result["hop"])))
+        self.pathping_table.setItem(row, 1, QTableWidgetItem(result["ip"]))
+        self.pathping_table.setItem(row, 2, QTableWidgetItem(str(result["time"]) if result["time"] is not None else "---"))
+        self.pathping_table.setItem(row, 3, QTableWidgetItem(str(result["loss_source"])))
+        self.pathping_table.setItem(row, 4, QTableWidgetItem(str(result["loss_node"])))
+        self.pathping_table.setItem(row, 5, QTableWidgetItem(result["status"]))
     # Метод для выполнения команды pathping
     def pathping_run(self):
+        # Получение введенных пользователем данных
         ip = self.pathping_input.text().strip()
         if not ip:
             self.result_text_pathping.setText("Пожалуйста, введите IP-адрес или домен.")
             return
+        hops = self.pathping_hops.value()
+        queries = self.pathping_queries.value()
+        period = self.pathping_period.value()
+        timeout = self.pathping_timeout.value()
+        self.pathping_table.setRowCount(0)  # Очистка таблицы перед новым запуском
+        # Формирование команды pathping с указанными параметрами
+        command = ["pathping", "-h", str(hops), "-q", str(queries), "-p", str(period), "-w", str(timeout)]
+        if self.pathping_no_resolve.isChecked():
+            command.append("-n")
+        command.append(ip)
+        # Максимальное время работы: трассировка (3 запроса на прыжок) + сбор статистики
+        max_time = hops * (3 * timeout / 1000 + queries * period / 1000) + 30
+        self.result_text_pathping.setText("Выполняется проверка, это может занять некоторое время...")
+        QApplication.processEvents()  # Обновление окна, чтобы сообщение было видно
         try:
-            result = subprocess.run(["pathping", "-n", ip], capture_output=True, text=True, timeout=60, encoding='cp866', errors='replace')
-            self.result_text_pathping.setPlainText(result.stdout)
+            result = subprocess.run(command, capture_output=True, text=True, timeout=max_time, encoding='cp866', errors='replace')
+            # Разделение вывода на строки и обработка каждой строки
+            for output in result.stdout.splitlines():
+                pathping_result = self.process_pathping_result(output)
+                if pathping_result:
+                    self.add_pathping_result(pathping_result)
+            # Если в таблицу ничего не попало (например, узел не найден), показываем вывод pathping как есть
+            if self.pathping_table.rowCount() == 0:
+                self.result_text_pathping.setText(result.stdout)
+                return
+            # Вывод краткой статистики
+            total_hops = self.pathping_table.rowCount()
+            lost_hops = 0
+            for row in range(total_hops):
+                if self.pathping_table.item(row, 5).text() != "Норма":
+                    lost_hops += 1
+            self.result_text_pathping.setText(f"Всего узлов: {total_hops}\n"
+                                              f"Узлов с потерями или без ответа: {lost_hops}")
         except subprocess.TimeoutExpired:
             self.result_text_pathping.setText("Превышено время ожидания.")
         except Exception as error:
@@ -301,6 +463,6 @@ class MainWindow(QMainWindow):
 app = QApplication(sys.argv)
 window = MainWindow()
 window.setWindowTitle("Network Analyzer")
-window.resize(1000, 650)
+window.resize(1200, 1000)
 window.show()
 sys.exit(app.exec())
