@@ -211,20 +211,29 @@ class MainWindow(QMainWindow):
             command.append("-a")
         if self.ping_r.isChecked():
             command.extend(["-r", str(self.ping_r_count.value())])
+        if self.ping_s.isChecked():
+            command.extend(["-s", str(self.ping_s_count.value())])
         command.append(ip)
         max_time = count * (timeout / 1000 + 1) + 10
         try:
             result = subprocess.run(command, capture_output=True, text=True, timeout=max_time, encoding='cp866', errors='replace')
             route_lines = []
-            its_route = False
+            time_lines = []
+            block_name = ""
             for output in result.stdout.splitlines():
                 if "Маршрут:" in output:
-                    its_route = True
+                    block_name = "route"
                     route_lines = []
+                elif "Отметка времени:" in output:
+                    block_name = "time"
+                    time_lines = []
                 elif not output.startswith(" "):
-                    its_route = False
-                if its_route:
+                    block_name = ""
+                if block_name == "route":
                     route_lines.append(output.strip())
+                    continue
+                if block_name == "time":
+                    time_lines.append(output.strip())
                     continue
                 ping_result = self.process_ping_result(output)
                 if ping_result:
@@ -257,6 +266,8 @@ class MainWindow(QMainWindow):
                          f"Среднее время: {average_time:.2f} мс")
             if route_lines:
                 statistic += "\n\n"+ "\n".join(route_lines)
+            if time_lines:
+                statistic += "\n\n"+ "\n".join(time_lines)
             self.result_text.setText(statistic)
         except subprocess.TimeoutExpired:
             self.result_text.setText("Превышено время ожидания.")
