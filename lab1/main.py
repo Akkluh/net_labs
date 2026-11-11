@@ -29,10 +29,10 @@ class MainWindow(QMainWindow):
 # Метод для создания вкладки Ping
     def create_ping_tab(self):
         layout = QVBoxLayout()
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(10)
         input_layout = QHBoxLayout()
-        form_layout = QFormLayout()
+        params_layout = QGridLayout()
 
         label = QLabel("IP-адрес или домен:")
 
@@ -44,6 +44,7 @@ class MainWindow(QMainWindow):
 
         input_layout.addWidget(label)
         input_layout.addWidget(self.ip_input)
+        input_layout.addWidget(button)
         layout.addLayout(input_layout)
 
         self.ping_count = QSpinBox()
@@ -94,30 +95,51 @@ class MainWindow(QMainWindow):
         self.ping_line_for_route = QLineEdit()
         self.ping_line_for_route.setPlaceholderText("IP-адресса через пробел")
 
-        form_layout.addRow("Количество пакетов:", self.ping_count)
-        form_layout.addRow("Размер пакета (байт):", self.ping_size)
-        form_layout.addRow("Время ожидания (мс):", self.ping_timeout)
-        form_layout.addRow("Время жизни пакета (TTL):", self.ping_ttl)
-        form_layout.addRow(self.ping_dont_fragment)
-        form_layout.addRow(self.ping_get_name)
-        form_layout.addRow(self.ping_t)
+     #   form_layout.addRow("Количество пакетов:", self.ping_count)
+     #   form_layout.addRow("Размер пакета (байт):", self.ping_size)
+     #   form_layout.addRow("Время ожидания (мс):", self.ping_timeout)
+     #   form_layout.addRow("Время жизни пакета (TTL):", self.ping_ttl)
+     #   form_layout.addRow(self.ping_dont_fragment)
+     #   form_layout.addRow(self.ping_get_name)
+     #   form_layout.addRow(self.ping_t)
 
         r_layout = QHBoxLayout()
         r_layout.addWidget(self.ping_r)
         r_layout.addWidget(self.ping_r_count)
-        form_layout.addRow(r_layout)
+     #   form_layout.addRow(r_layout)
 
         s_layout = QHBoxLayout()
         s_layout.addWidget(self.ping_s)
         s_layout.addWidget(self.ping_s_count)
-        form_layout.addRow(s_layout)
+     #   form_layout.addRow(s_layout)
 
-        form_layout.addRow("Маршрут по списку узлов:", self.ping_route_type)
-        form_layout.addRow("Список узлов:", self.ping_line_for_route)
+     #   form_layout.addRow("Маршрут по списку узлов:", self.ping_route_type)
+     #   form_layout.addRow("Список узлов:", self.ping_line_for_route)
 
-        layout.addLayout(form_layout)
+        params_layout.addWidget(QLabel("Количество пакетов:"), 0, 0)
+        params_layout.addWidget(self.ping_count, 0, 1)
+        params_layout.addWidget(QLabel("Размер (байт):"), 0, 2)
+        params_layout.addWidget(self.ping_size, 0, 3)
+        params_layout.addWidget(QLabel("Таймаут (мс):"), 0, 4)
+        params_layout.addWidget(self.ping_timeout, 0, 5)
 
-        layout.addWidget(button)
+        params_layout.addWidget(QLabel("TTL:"), 1, 0)
+        params_layout.addWidget(self.ping_ttl, 1, 1)
+        params_layout.addWidget(QLabel("Маршрут по списку:"), 1, 2)
+        params_layout.addWidget(self.ping_route_type, 1, 3)
+        params_layout.addWidget(QLabel("Узлы:"), 1, 4)
+        params_layout.addWidget(self.ping_line_for_route, 1, 5)
+
+        params_layout.addWidget(self.ping_dont_fragment, 2, 0, 1, 2)
+        params_layout.addWidget(self.ping_get_name, 2, 2, 1, 2)
+        params_layout.addWidget(self.ping_t, 2, 4, 1, 2)
+
+        params_layout.addWidget(self.ping_r, 3, 0, 1, 2)
+        params_layout.addWidget(self.ping_r_count, 3, 2)
+        params_layout.addWidget(self.ping_s, 3, 3, 1, 2)
+        params_layout.addWidget(self.ping_s_count, 3, 5)
+
+        layout.addLayout(params_layout)
 
         self.ping_table = QTableWidget()
         self.ping_table.setColumnCount(6)
@@ -129,6 +151,7 @@ class MainWindow(QMainWindow):
 
         self.result_text = QTextEdit()
         self.result_text.setReadOnly(True)
+        self.result_text.setMaximumHeight(150)
         layout.addWidget(self.result_text)
 
         self.ping_tab.setLayout(layout)
@@ -186,11 +209,23 @@ class MainWindow(QMainWindow):
             command.append("-f")
         if self.ping_get_name.isChecked():
             command.append("-a")
+        if self.ping_r.isChecked():
+            command.extend(["-r", str(self.ping_r_count.value())])
         command.append(ip)
         max_time = count * (timeout / 1000 + 1) + 10
         try:
             result = subprocess.run(command, capture_output=True, text=True, timeout=max_time, encoding='cp866', errors='replace')
+            route_lines = []
+            its_route = False
             for output in result.stdout.splitlines():
+                if "Маршрут:" in output:
+                    its_route = True
+                    route_lines = []
+                elif not output.startswith(" "):
+                    its_route = False
+                if its_route:
+                    route_lines.append(output.strip())
+                    continue
                 ping_result = self.process_ping_result(output)
                 if ping_result:
                     self.add_ping_result(ping_result)
@@ -215,11 +250,14 @@ class MainWindow(QMainWindow):
                 average_time = total_time / receive_count
             else:
                 average_time = 0
-            self.result_text.setText(f"Отправлено: {count}\n"
-                                     f"Получено: {receive_count}\n"
-                                     f"Потеряно: {lost_count}\n"
-                                     f"Процент потерь: {loss_percentage:.2f}%\n"
-                                     f"Среднее время: {average_time:.2f} мс")
+            statistic = (f"Отправлено: {count}\n"
+                         f"Получено: {receive_count}\n"
+                         f"Потеряно: {lost_count}\n"
+                         f"Процент потерь: {loss_percentage:.2f}%\n"
+                         f"Среднее время: {average_time:.2f} мс")
+            if route_lines:
+                statistic += "\n\n"+ "\n".join(route_lines)
+            self.result_text.setText(statistic)
         except subprocess.TimeoutExpired:
             self.result_text.setText("Превышено время ожидания.")
         except Exception as error:
