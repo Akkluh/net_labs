@@ -39,12 +39,16 @@ class MainWindow(QMainWindow):
         self.ip_input = QLineEdit()
         self.ip_input.setPlaceholderText("Введите IP-адрес или домен:")
 
-        button = QPushButton("Проверить")
-        button.clicked.connect(self.ping_run)
+        self.button = QPushButton("Проверить")
+        self.button.clicked.connect(self.ping_run)
+        self.stop_button = QPushButton("Остановить")
+        self.stop_button.setEnabled(False)
+        self.stop_button.clicked.connect(self.ping_stop)
 
         input_layout.addWidget(label)
         input_layout.addWidget(self.ip_input)
-        input_layout.addWidget(button)
+        input_layout.addWidget(self.button)
+        input_layout.addWidget(self.stop_button)
         layout.addLayout(input_layout)
 
         self.ping_count = QSpinBox()
@@ -72,6 +76,7 @@ class MainWindow(QMainWindow):
 
         # Флаг постоянной проверки (параметр -t)
         self.ping_t = QCheckBox("Постоянная проверка (-t)")
+        self.ping_t.toggled.connect(lambda checked: self.ping_count.setEnabled(not checked))
 
         # Запись маршрута (параметр -r)
         self.ping_r = QCheckBox("Запись маршрута (-r), узлов: ")
@@ -95,26 +100,13 @@ class MainWindow(QMainWindow):
         self.ping_line_for_route = QLineEdit()
         self.ping_line_for_route.setPlaceholderText("IP-адресса через пробел")
 
-     #   form_layout.addRow("Количество пакетов:", self.ping_count)
-     #   form_layout.addRow("Размер пакета (байт):", self.ping_size)
-     #   form_layout.addRow("Время ожидания (мс):", self.ping_timeout)
-     #   form_layout.addRow("Время жизни пакета (TTL):", self.ping_ttl)
-     #   form_layout.addRow(self.ping_dont_fragment)
-     #   form_layout.addRow(self.ping_get_name)
-     #   form_layout.addRow(self.ping_t)
-
         r_layout = QHBoxLayout()
         r_layout.addWidget(self.ping_r)
         r_layout.addWidget(self.ping_r_count)
-     #   form_layout.addRow(r_layout)
 
         s_layout = QHBoxLayout()
         s_layout.addWidget(self.ping_s)
         s_layout.addWidget(self.ping_s_count)
-     #   form_layout.addRow(s_layout)
-
-     #   form_layout.addRow("Маршрут по списку узлов:", self.ping_route_type)
-     #   form_layout.addRow("Список узлов:", self.ping_line_for_route)
 
         params_layout.addWidget(QLabel("Количество пакетов:"), 0, 0)
         params_layout.addWidget(self.ping_count, 0, 1)
@@ -198,13 +190,21 @@ class MainWindow(QMainWindow):
         if not ip:
             self.result_text.setText("Пожалуйста, введите IP-адрес или домен.")
             return
+        route_hosts = self.ping_line_for_route.text().strip()
+        route_type = self.ping_route_type.currentIndex()
+        if route_type != 0 and not route_hosts:
+            self.result_text.setText("Укажите IP-адреса для маршрута по списку узлов")
         count = self.ping_count.value()
         size = self.ping_size.value()
         timeout = self.ping_timeout.value()
         ttl = self.ping_ttl.value()
         self.ping_table.setRowCount(0)  # Очистка таблицы перед новым запуском
         # Формирование команды ping с указанными параметрами
-        command = ["ping", "-n", str(count), "-l", str(size), "-w", str(timeout), "-i", str(ttl)]
+        command = ["ping", "-l", str(size), "-w", str(timeout), "-i", str(ttl)]
+        if self.ping_t.isChecked():
+            command.append("-t")
+        else:
+            command.extend(["-n", str(count)])
         if self.ping_dont_fragment.isChecked():
             command.append("-f")
         if self.ping_get_name.isChecked():
@@ -213,14 +213,25 @@ class MainWindow(QMainWindow):
             command.extend(["-r", str(self.ping_r_count.value())])
         if self.ping_s.isChecked():
             command.extend(["-s", str(self.ping_s_count.value())])
+        if route_type == 1:
+            command.append("-j")
+            command.extend(route_hosts)
+        if route_type == 2:
+            command.append("-k")
+            command.extend(route_hosts)
         command.append(ip)
-        max_time = count * (timeout / 1000 + 1) + 10
+        self.button.setEnabled(False)
+        self.stop_button.setEnabled(True)
+        all_output = ""
         try:
-            result = subprocess.run(command, capture_output=True, text=True, timeout=max_time, encoding='cp866', errors='replace')
+            self.ping_commmand = subprocess.Popen(command, stdout=subprocess.PIPE, text=True, encoding='cp866', errors='replace')
             route_lines = []
             time_lines = []
             block_name = ""
-            for output in result.stdout.splitlines():
+            for output in self.ping_commmand.stdout:
+                QApplication.processEvents()
+                all_output += output
+                self.ping_table.scrollToBottom()
                 if "Маршрут:" in output:
                     block_name = "route"
                     route_lines = []
@@ -250,9 +261,10 @@ class MainWindow(QMainWindow):
                         "status": "Потеря пакета"
                     })
             if self.ping_table.rowCount() == 0:
-                self.result_text.setText(result.stdout)
+                self.result_text.setText(all_output)
                 return
             # Вывод статистики по результатам ping
+            count = self.ping_table.rowCount()
             lost_count = count - receive_count
             loss_percentage = (lost_count / count) * 100
             if receive_count > 0:
@@ -273,6 +285,12 @@ class MainWindow(QMainWindow):
             self.result_text.setText("Превышено время ожидания.")
         except Exception as error:
             self.result_text.setText(f"Ошибка: {error}")
+        finally:
+            self.button.setEnabled(True)
+            self.stop_button.setEnabled(False)
+        # Метод для остановки ping
+    def ping_stop(self):
+        self.ping_commmand.terminate()
 # IPCONFIG
     # Метод для создания вкладки IPConfig
     def create_ipconfig_tab(self):
