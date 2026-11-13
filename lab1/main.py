@@ -51,7 +51,7 @@ class MainWindow(QMainWindow):
         input_layout.addWidget(self.stop_button)
         layout.addLayout(input_layout)
 
-        # количество пакетов
+        # количество пакетов (-n)
         self.ping_count = QSpinBox()
         self.ping_count.setRange(1, 1000)
         self.ping_count.setValue(4)
@@ -59,7 +59,7 @@ class MainWindow(QMainWindow):
         self.ping_count.setEnabled(False)
         self.ping_count_check.toggled.connect(self.ping_count.setEnabled)
 
-        # размер
+        # размер (-l)
         self.ping_size = QSpinBox()
         self.ping_size.setRange(1, 65500)
         self.ping_size.setValue(32)
@@ -67,7 +67,7 @@ class MainWindow(QMainWindow):
         self.ping_size.setEnabled(False)
         self.ping_size_check.toggled.connect(self.ping_size.setEnabled)
 
-        # задержка
+        # задержка (-w)
         self.ping_timeout = QSpinBox()
         self.ping_timeout.setRange(1, 10000)
         self.ping_timeout.setValue(1000)
@@ -91,7 +91,10 @@ class MainWindow(QMainWindow):
 
         # Флаг постоянной проверки (параметр -t)
         self.ping_t = QCheckBox("Постоянная проверка (-t)")
-        self.ping_t.toggled.connect(lambda checked: self.ping_count.setEnabled(not checked))
+        def toggle_ping_count(checked):
+            self.ping_count_check.setEnabled(not checked)
+            self.ping_count.setEnabled(not checked and self.ping_count_check.isChecked())
+        self.ping_t.toggled.connect(toggle_ping_count)
 
         # Запись маршрута (параметр -r)
         self.ping_r = QCheckBox("Запись маршрута (-r), узлов: ")
@@ -114,35 +117,57 @@ class MainWindow(QMainWindow):
         self.ping_route_type.addItems(["Нет", "Нестрогий маршрут (-j)", "Строгий маршрут (-k)"])
         self.ping_line_for_route = QLineEdit()
         self.ping_line_for_route.setPlaceholderText("IP-адресса через пробел")
+        self.ping_line_for_route.setEnabled(False)
+        self.ping_route_type.currentIndexChanged.connect(lambda i: self.ping_line_for_route.setEnabled(i != 0))
 
-        r_layout = QHBoxLayout()
-        r_layout.addWidget(self.ping_r)
-        r_layout.addWidget(self.ping_r_count)
+        # r_layout = QHBoxLayout()
+        # r_layout.addWidget(self.ping_r)
+        # r_layout.addWidget(self.ping_r_count)
 
-        s_layout = QHBoxLayout()
-        s_layout.addWidget(self.ping_s)
-        s_layout.addWidget(self.ping_s_count)
+        # s_layout = QHBoxLayout()
+        # s_layout.addWidget(self.ping_s)
+        # s_layout.addWidget(self.ping_s_count)
+
+        # params_layout.addWidget(self.ping_count_check, 0, 0)
+        # params_layout.addWidget(self.ping_count, 0, 1)
+        # params_layout.addWidget(self.ping_size_check, 0, 2)
+        # params_layout.addWidget(self.ping_size, 0, 3)
+        # params_layout.addWidget(self.ping_timeout_check, 0, 4)
+        # params_layout.addWidget(self.ping_timeout, 0, 5)
+        # params_layout.addWidget(self.ping_ttl_check, 1, 0)
+        # params_layout.addWidget(self.ping_ttl, 1, 1)
+        # params_layout.addWidget(QLabel("Маршрут по списку:"), 1, 2)
+        # params_layout.addWidget(self.ping_route_type, 1, 3)
+        # params_layout.addWidget(QLabel("Узлы:"), 1, 4)
+        # params_layout.addWidget(self.ping_line_for_route, 1, 5)
+        # params_layout.addWidget(self.ping_dont_fragment, 2, 0, 1, 2)
+        # params_layout.addWidget(self.ping_get_name, 2, 2, 1, 2)
+        # params_layout.addWidget(self.ping_t, 2, 4, 1, 2)
+        # params_layout.addWidget(self.ping_r, 3, 0, 1, 2)
+        # params_layout.addWidget(self.ping_r_count, 3, 2)
+        # params_layout.addWidget(self.ping_s, 3, 3, 1, 2)
+        # params_layout.addWidget(self.ping_s_count, 3, 5)
+
+        # layout.addLayout(params_layout)
+
 
         params_layout.addWidget(self.ping_count_check, 0, 0)
         params_layout.addWidget(self.ping_count, 0, 1)
         params_layout.addWidget(self.ping_size_check, 0, 2)
         params_layout.addWidget(self.ping_size, 0, 3)
-        params_layout.addWidget(self.ping_timeout_check, 0, 4)
-        params_layout.addWidget(self.ping_timeout, 0, 5)
-        params_layout.addWidget(self.ping_ttl_check, 1, 0)
-        params_layout.addWidget(self.ping_ttl, 1, 1)
-        params_layout.addWidget(QLabel("Маршрут по списку:"), 1, 2)
-        params_layout.addWidget(self.ping_route_type, 1, 3)
-        params_layout.addWidget(QLabel("Узлы:"), 1, 4)
-        params_layout.addWidget(self.ping_line_for_route, 1, 5)
-        params_layout.addWidget(self.ping_dont_fragment, 2, 0, 1, 2)
-        params_layout.addWidget(self.ping_get_name, 2, 2, 1, 2)
-        params_layout.addWidget(self.ping_t, 2, 4, 1, 2)
-        params_layout.addWidget(self.ping_r, 3, 0, 1, 2)
-        params_layout.addWidget(self.ping_r_count, 3, 2)
-        params_layout.addWidget(self.ping_s, 3, 3, 1, 2)
-        params_layout.addWidget(self.ping_s_count, 3, 5)
-
+        params_layout.addWidget(self.ping_timeout_check, 1, 0)
+        params_layout.addWidget(self.ping_timeout, 1, 1)
+        params_layout.addWidget(self.ping_ttl_check, 1, 2)
+        params_layout.addWidget(self.ping_ttl, 1, 3)
+        params_layout.addWidget(self.ping_s, 2, 0)
+        params_layout.addWidget(self.ping_s_count, 2, 1)
+        params_layout.addWidget(self.ping_r, 2, 2)
+        params_layout.addWidget(self.ping_r_count, 2, 3)
+        params_layout.addWidget(self.ping_dont_fragment, 3, 0)
+        params_layout.addWidget(self.ping_get_name, 3, 1)
+        params_layout.addWidget(self.ping_t, 3, 2)
+        params_layout.addWidget(self.ping_route_type, 4, 0)
+        params_layout.addWidget(self.ping_line_for_route, 4, 1)
         layout.addLayout(params_layout)
 
         self.ping_table = QTableWidget()
@@ -159,7 +184,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.result_text)
 
         self.ping_tab.setLayout(layout)
-    # Метод для обработки одной строки вывода ping
+# Метод для обработки одной строки вывода ping
     def process_ping_result(self, result):
         ip_result = re.search(r"Ответ от (.+?): (.*)", result)
         if not ip_result:
