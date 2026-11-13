@@ -51,22 +51,37 @@ class MainWindow(QMainWindow):
         input_layout.addWidget(self.stop_button)
         layout.addLayout(input_layout)
 
+        # количество пакетов
         self.ping_count = QSpinBox()
         self.ping_count.setRange(1, 1000)
         self.ping_count.setValue(4)
+        self.ping_count_check = QCheckBox("Количество пакетов (-n)")
+        self.ping_count.setEnabled(False)
+        self.ping_count_check.toggled.connect(self.ping_count.setEnabled)
 
+        # размер
         self.ping_size = QSpinBox()
         self.ping_size.setRange(1, 65500)
         self.ping_size.setValue(32)
+        self.ping_size_check = QCheckBox("Размер (-l)")
+        self.ping_size.setEnabled(False)
+        self.ping_size_check.toggled.connect(self.ping_size.setEnabled)
 
+        # задержка
         self.ping_timeout = QSpinBox()
         self.ping_timeout.setRange(1, 10000)
         self.ping_timeout.setValue(1000)
+        self.ping_timeout_check = QCheckBox("Таймаут (-w)")
+        self.ping_timeout.setEnabled(False)
+        self.ping_timeout_check.toggled.connect(self.ping_timeout.setEnabled)
 
         # Время жизни пакета (параметр -i)
         self.ping_ttl = QSpinBox()
         self.ping_ttl.setRange(1, 255)
         self.ping_ttl.setValue(128)
+        self.ping_ttl_check = QCheckBox("TTL (-i)")
+        self.ping_ttl.setEnabled(False)
+        self.ping_ttl_check.toggled.connect(self.ping_ttl.setEnabled)
 
         # Флаг "не фрагментировать" (параметр -f)
         self.ping_dont_fragment = QCheckBox("Не фрагментировать пакеты (-f)")
@@ -108,24 +123,21 @@ class MainWindow(QMainWindow):
         s_layout.addWidget(self.ping_s)
         s_layout.addWidget(self.ping_s_count)
 
-        params_layout.addWidget(QLabel("Количество пакетов:"), 0, 0)
+        params_layout.addWidget(self.ping_count_check, 0, 0)
         params_layout.addWidget(self.ping_count, 0, 1)
-        params_layout.addWidget(QLabel("Размер (байт):"), 0, 2)
+        params_layout.addWidget(self.ping_size_check, 0, 2)
         params_layout.addWidget(self.ping_size, 0, 3)
-        params_layout.addWidget(QLabel("Таймаут (мс):"), 0, 4)
+        params_layout.addWidget(self.ping_timeout_check, 0, 4)
         params_layout.addWidget(self.ping_timeout, 0, 5)
-
-        params_layout.addWidget(QLabel("TTL:"), 1, 0)
+        params_layout.addWidget(self.ping_ttl_check, 1, 0)
         params_layout.addWidget(self.ping_ttl, 1, 1)
         params_layout.addWidget(QLabel("Маршрут по списку:"), 1, 2)
         params_layout.addWidget(self.ping_route_type, 1, 3)
         params_layout.addWidget(QLabel("Узлы:"), 1, 4)
         params_layout.addWidget(self.ping_line_for_route, 1, 5)
-
         params_layout.addWidget(self.ping_dont_fragment, 2, 0, 1, 2)
         params_layout.addWidget(self.ping_get_name, 2, 2, 1, 2)
         params_layout.addWidget(self.ping_t, 2, 4, 1, 2)
-
         params_layout.addWidget(self.ping_r, 3, 0, 1, 2)
         params_layout.addWidget(self.ping_r_count, 3, 2)
         params_layout.addWidget(self.ping_s, 3, 3, 1, 2)
@@ -194,6 +206,7 @@ class MainWindow(QMainWindow):
         route_type = self.ping_route_type.currentIndex()
         if route_type != 0 and not route_hosts:
             self.result_text.setText("Укажите IP-адреса для маршрута по списку узлов")
+            return
         count = self.ping_count.value()
         size = self.ping_size.value()
         timeout = self.ping_timeout.value()
@@ -214,21 +227,19 @@ class MainWindow(QMainWindow):
         if self.ping_s.isChecked():
             command.extend(["-s", str(self.ping_s_count.value())])
         if route_type == 1:
-            command.append("-j")
-            command.extend(route_hosts)
+            command.extend(["-j", *route_hosts.split()])
         if route_type == 2:
-            command.append("-k")
-            command.extend(route_hosts)
+            command.extend(["-k", *route_hosts.split()])
         command.append(ip)
         self.button.setEnabled(False)
         self.stop_button.setEnabled(True)
         all_output = ""
         try:
-            self.ping_commmand = subprocess.Popen(command, stdout=subprocess.PIPE, text=True, encoding='cp866', errors='replace')
+            self.ping_command = subprocess.Popen(command, stdout=subprocess.PIPE, text=True, encoding='cp866', errors='replace')
             route_lines = []
             time_lines = []
             block_name = ""
-            for output in self.ping_commmand.stdout:
+            for output in self.ping_command.stdout:
                 QApplication.processEvents()
                 all_output += output
                 self.ping_table.scrollToBottom()
@@ -290,7 +301,7 @@ class MainWindow(QMainWindow):
             self.stop_button.setEnabled(False)
         # Метод для остановки ping
     def ping_stop(self):
-        self.ping_commmand.terminate()
+        self.ping_command.terminate()
 # IPCONFIG
     # Метод для создания вкладки IPConfig
     def create_ipconfig_tab(self):
