@@ -2,7 +2,9 @@ import sys
 import subprocess
 from PySide6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QLabel, 
                                QPushButton, QLineEdit, QHBoxLayout, QTextEdit, QFormLayout, QSpinBox, 
-                               QTableWidget, QHeaderView, QTableWidgetItem, QCheckBox, QComboBox, QGridLayout)
+                               QTableWidget, QHeaderView, QTableWidgetItem, QCheckBox, QComboBox, QSplitter,
+                               QFrame)
+from PySide6.QtCore import Qt
 import re
 # Класс главного окна приложения
 class MainWindow(QMainWindow):
@@ -40,6 +42,7 @@ class MainWindow(QMainWindow):
         self.ip_input = QLineEdit()
         self.ip_input.setPlaceholderText("Введите IP-адрес или домен:")
 
+        # кнопки
         self.button = QPushButton("Проверить")
         self.button.clicked.connect(self.ping_run)
         self.stop_button = QPushButton("Остановить")
@@ -118,7 +121,9 @@ class MainWindow(QMainWindow):
         self.ping_line_for_route.setPlaceholderText("IP-адресса через пробел")
         self.ping_line_for_route.setEnabled(False)
         self.ping_route_type.currentIndexChanged.connect(lambda i: self.ping_line_for_route.setEnabled(i != 0))
-        def group_param(checkbox, spinbox):
+
+        # функции для интерфейса
+        def group_param(checkbox, spinbox): # группировка чекбоксов и счётчиков
             group = QWidget()
             group_layout = QHBoxLayout(group)
             group_layout.setContentsMargins(0, 0, 0, 0)
@@ -127,13 +132,14 @@ class MainWindow(QMainWindow):
             group_layout.addWidget(checkbox, 1)
             group_layout.addWidget(spinbox)
             return group
-        def make_row(c1, s1, c2, s2):
+        def make_row(c1, s1, c2, s2): # создание строки из двух параметров
             row = QHBoxLayout()
             row.setSpacing(16)
             row.addWidget(group_param(c1, s1), 1)
             row.addWidget(group_param(c2, s2), 1)
             return row
 
+        # интерфейс
         params_layout.addLayout(make_row(self.ping_count_check, self.ping_count, self.ping_size_check, self.ping_size))
         params_layout.addLayout(make_row(self.ping_timeout_check, self.ping_timeout, self.ping_ttl_check, self.ping_ttl))
         params_layout.addLayout(make_row(self.ping_s, self.ping_s_count, self.ping_r, self.ping_r_count))
@@ -143,6 +149,8 @@ class MainWindow(QMainWindow):
         flags_row.addWidget(self.ping_t, 1)
         params_layout.addLayout(flags_row)
         route_row = QHBoxLayout()
+        route_label = QLabel("Маршрут через узлы (-j/-k)")
+        route_row.addWidget(route_label)
         route_row.addWidget(self.ping_route_type, 1)
         route_row.addWidget(self.ping_line_for_route, 1)
         params_layout.addLayout(route_row)
@@ -152,18 +160,27 @@ class MainWindow(QMainWindow):
         button_row.addWidget(self.stop_button, 1)
         layout.addLayout(button_row)
 
+        # таблица
         self.ping_table = QTableWidget()
         self.ping_table.setColumnCount(6)
         self.ping_table.setHorizontalHeaderLabels(["№", "IP-адрес", "Байты", "Время (мс)", "TTL", "Результат"])
         self.ping_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.ping_table.verticalHeader().setVisible(False)
         self.ping_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        layout.addWidget(self.ping_table)
 
+        # дополнительное поле вывода
         self.result_text = QTextEdit()
         self.result_text.setReadOnly(True)
-        self.result_text.setMaximumHeight(150)
-        layout.addWidget(self.result_text)
+        self.result_text.setFrameShape(QFrame.Shape.Box)
+        self.result_text.setLineWidth(1)
+
+        # разделитель между таблицей и полем вывода
+        splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter.addWidget(self.ping_table)
+        splitter.addWidget(self.result_text)
+        splitter.setStretchFactor(0, 2)
+        splitter.setStretchFactor(1, 3)
+        layout.addWidget(splitter, 1)
 
         self.ping_tab.setLayout(layout)
 # Метод для обработки одной строки вывода ping
@@ -220,24 +237,42 @@ class MainWindow(QMainWindow):
         ttl = self.ping_ttl.value()
         self.ping_table.setRowCount(0)  # Очистка таблицы перед новым запуском
         # Формирование команды ping с указанными параметрами
-        command = ["ping", "-l", str(size), "-w", str(timeout), "-i", str(ttl)]
+        command = ["ping"]
+        # -n
+        if self.ping_count_check.isChecked() and not self.ping_t.isChecked():
+            command.extend(["-n", str(self.ping_count.value())])
+        # -l
+        if self.ping_size_check.isChecked():
+            command.extend(["-l", str(self.ping_size.value())])
+        # -w
+        if self.ping_timeout_check.isChecked():
+            command.extend(["-w", str(self.ping_timeout.value())])
+        # -i
+        if self.ping_ttl_check.isChecked():
+            command.extend(["-i", str(self.ping_ttl.value())])
+        # -t
         if self.ping_t.isChecked():
             command.append("-t")
-        else:
-            command.extend(["-n", str(count)])
+        # -f
         if self.ping_dont_fragment.isChecked():
             command.append("-f")
+        # -a
         if self.ping_get_name.isChecked():
             command.append("-a")
+        # -r
         if self.ping_r.isChecked():
             command.extend(["-r", str(self.ping_r_count.value())])
+        # -s
         if self.ping_s.isChecked():
             command.extend(["-s", str(self.ping_s_count.value())])
+        # -j/-k
         if route_type == 1:
             command.extend(["-j", *route_hosts.split()])
         if route_type == 2:
             command.extend(["-k", *route_hosts.split()])
+        # добавление адреса
         command.append(ip)
+        print("Команда: ", subprocess.list2cmdline(command))
         self.button.setEnabled(False)
         self.stop_button.setEnabled(True)
         all_output = ""
@@ -246,9 +281,16 @@ class MainWindow(QMainWindow):
             route_lines = []
             time_lines = []
             block_name = ""
+            get_name = None
+            get_ip = None
             for output in self.ping_command.stdout:
                 QApplication.processEvents()
                 all_output += output
+                print("Полученная строка:", repr(output))
+                name_match = re.search(r"Обмен пакетами с\s+(.+?)\s+\[(.+?)\]", output)
+                if name_match:
+                    get_name = name_match.group(1).strip()
+                    get_ip = name_match.group(2).strip()
                 self.ping_table.scrollToBottom()
                 if "Маршрут:" in output:
                     block_name = "route"
@@ -264,8 +306,11 @@ class MainWindow(QMainWindow):
                 if block_name == "time":
                     time_lines.append(output.strip())
                     continue
+
                 ping_result = self.process_ping_result(output)
                 if ping_result:
+                    if get_name and ping_result["ip"] == get_ip:
+                        ping_result["ip"] = f"{get_name} ({get_ip})"
                     self.add_ping_result(ping_result)
                     if ping_result["status"] == "Успешно":
                         receive_count += 1
@@ -306,7 +351,7 @@ class MainWindow(QMainWindow):
         finally:
             self.button.setEnabled(True)
             self.stop_button.setEnabled(False)
-        # Метод для остановки ping
+    # Метод для остановки ping
     def ping_stop(self):
         self.ping_command.terminate()
 # IPCONFIG
