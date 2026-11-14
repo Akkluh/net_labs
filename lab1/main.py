@@ -189,14 +189,21 @@ class MainWindow(QMainWindow):
         if not ip_result:
             return None
         bytes_result = re.search(r"байт=(\d+)", result)
-        time_result = re.search(r"время[=<](\d+)", result)
+        time_result = re.search(r"время([=<])(\d+)", result)
         ttl_result = re.search(r"TTL=(\d+)", result)
         # Успешный ответ: есть и байты, и время, и TTL
         if bytes_result and time_result and ttl_result:
+            time_value = int(time_result.group(2))
+            if time_result.group(1) == "<":
+                time_value = 0
+                time_display = "<1"
+            else:
+                time_display = str(time_value)
             return {
                 "ip": ip_result.group(1),
                 "bytes": int(bytes_result.group(1)),
-                "time": int(time_result.group(1)),
+                "time": time_value,
+                "time_display": time_display,
                 "ttl": int(ttl_result.group(1)),
                 "status": "Успешно"
             }
@@ -204,6 +211,7 @@ class MainWindow(QMainWindow):
             "ip": ip_result.group(1),
             "bytes": None,
             "time": None,
+            "time_display": "---",
             "ttl": None,
             "status": ip_result.group(2).strip().rstrip(".")
         }
@@ -214,13 +222,16 @@ class MainWindow(QMainWindow):
         self.ping_table.setItem(row, 0, QTableWidgetItem(str(row + 1)))
         self.ping_table.setItem(row, 1, QTableWidgetItem(result["ip"]))
         self.ping_table.setItem(row, 2, QTableWidgetItem(str(result["bytes"]) if result["bytes"] is not None else "---"))
-        self.ping_table.setItem(row, 3, QTableWidgetItem(str(result["time"]) if result["time"] is not None else "---"))
+        self.ping_table.setItem(row, 3, QTableWidgetItem(result.get("time_display", str(result["time"]) if result["time"] is not None else "---")))
         self.ping_table.setItem(row, 4, QTableWidgetItem(str(result["ttl"]) if result["ttl"] is not None else "---"))
         self.ping_table.setItem(row, 5, QTableWidgetItem(result["status"]))
     # Метод для выполнения команды ping
     def ping_run(self):
+        sent_count = 0
         receive_count = 0
         total_time = 0
+        min_time = None
+        max_time = None
         # Получение введенных пользователем данных
         ip = self.ip_input.text().strip()
         if not ip:
@@ -231,10 +242,6 @@ class MainWindow(QMainWindow):
         if route_type != 0 and not route_hosts:
             self.result_text.setText("Укажите IP-адреса для маршрута по списку узлов")
             return
-        count = self.ping_count.value()
-        size = self.ping_size.value()
-        timeout = self.ping_timeout.value()
-        ttl = self.ping_ttl.value()
         self.ping_table.setRowCount(0)  # Очистка таблицы перед новым запуском
         # Формирование команды ping с указанными параметрами
         command = ["ping"]
@@ -292,10 +299,10 @@ class MainWindow(QMainWindow):
                     get_name = name_match.group(1).strip()
                     get_ip = name_match.group(2).strip()
                 self.ping_table.scrollToBottom()
-                if "Маршрут:" in output:
+                if "Маршрут:" in output and not route_lines:
                     block_name = "route"
                     route_lines = []
-                elif "Отметка времени:" in output:
+                elif "Отметка времени:" in output and not time_lines:
                     block_name = "time"
                     time_lines = []
                 elif not output.startswith(" "):
@@ -307,15 +314,23 @@ class MainWindow(QMainWindow):
                     time_lines.append(output.strip())
                     continue
 
+                # обработка результата ping
                 ping_result = self.process_ping_result(output)
                 if ping_result:
+                    sent_count += 1
                     if get_name and ping_result["ip"] == get_ip:
                         ping_result["ip"] = f"{get_name} ({get_ip})"
                     self.add_ping_result(ping_result)
                     if ping_result["status"] == "Успешно":
                         receive_count += 1
-                        total_time += ping_result["time"]
+                        paket_time = ping_result["time"]
+                        total_time += paket_time
+                        if min_time is None or paket_time < min_time:
+                            min_time = paket_time
+                        if max_time is None or paket_time > max_time:
+                            max_time = paket_time
                 elif "Превышен интервал ожидания" in output:
+                    sent_count += 1
                     self.add_ping_result({
                         "ip": ip,
                         "bytes": None,
@@ -327,17 +342,21 @@ class MainWindow(QMainWindow):
                 self.result_text.setText(all_output)
                 return
             # Вывод статистики по результатам ping
-            count = self.ping_table.rowCount()
-            lost_count = count - receive_count
-            loss_percentage = (lost_count / count) * 100
+            lost_count = sent_count - receive_count
+            if sent_count > 0:
+                loss_percentage = (lost_count/sent_count)*100
+            else:
+                loss_percentage = 0
             if receive_count > 0:
-                average_time = total_time / receive_count
+                average_time = total_time/receive_count
             else:
                 average_time = 0
-            statistic = (f"Отправлено: {count}\n"
+            statistic = (f"Отправлено: {sent_count}\n"
                          f"Получено: {receive_count}\n"
                          f"Потеряно: {lost_count}\n"
                          f"Процент потерь: {loss_percentage:.2f}%\n"
+                         f"Минимальное время: {min_time if min_time is not None else '---'} мс\n"
+                         f"Максимальное время: {max_time if max_time is not None else '---'} мс\n"
                          f"Среднее время: {average_time:.2f} мс")
             if route_lines:
                 statistic += "\n\n"+ "\n".join(route_lines)
