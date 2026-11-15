@@ -380,49 +380,73 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(10)
 
+        # выбор параметра
+        layout.addWidget(QLabel("Режим работы: "))
+        self.ipconfig_mode = QComboBox()
+        self.ipconfig_mode.addItem("Основная информация", "default")
+        self.ipconfig_mode.addItem("Полная информация (/all)", "/all")
+        self.ipconfig_mode.addItem("Кэш DNS (/displaydns)", "/displaydns")
+        layout.addWidget(self.ipconfig_mode)
+
+        # кнопка
         button = QPushButton("Получить информацию о сети")
         button.clicked.connect(self.ipconfig_run)
-
         layout.addWidget(button)
 
+        # вкладки
         self.adapter_tabs = QTabWidget()
-        layout.addWidget(self.adapter_tabs)
-        
+        # вкладка общего вывода
         self.result_text_ipconfig = QTextEdit()
         self.result_text_ipconfig.setReadOnly(True)
-        layout.addWidget(self.result_text_ipconfig)
+        # self.adapter_tabs.addTab(self.result_text_ipconfig, "Полный вывод")
+        # размещение вкладок
+        layout.addWidget(self.adapter_tabs)
 
         self.ipconfig_tab.setLayout(layout)
     # Метод для обработки результата ipconfig
     def process_ipconfig_result(self, result):
-        adapters = []
-        current_adapter = {}
-        last_key = None
+        adapters = [] # список всех адаптеров
+        current_adapter = {} # словарь с информацией об адаптере
+        last_key = None # последний параметр
+        parametr_space = None
         for adapter in result.splitlines():
             line = adapter.strip()
-            indent = len(adapter) - len(adapter.lstrip())
+            spaces = len(adapter) - len(adapter.lstrip()) # подсчёт пробелов
             if (line.lower().startswith("адаптер ") or line.lower().startswith("неизвестный адаптер ")) and line.endswith(":"):
+                # найден адаптер
                 name = line[:-1]
                 current_adapter = {"name": name}
                 adapters.append(current_adapter)
                 last_key = None
+                parametr_space = None
             else:
-                if  indent == 3 and current_adapter:
+                if parametr_space is None and ":" in line:
+                    parametr_space = spaces
+                # обработка параметров
+                if spaces == parametr_space and current_adapter:
                     key, value = line.split(":", 1)
                     key = key.replace(".", "").strip()
                     current_adapter[key.strip()] = value.strip()
                     last_key = key.strip()
-                elif indent > 3 and current_adapter and last_key:
+                # обработка параметров на следующей строке
+                elif parametr_space is not None and spaces > parametr_space and current_adapter and last_key:
                     current_adapter[last_key] += ", " + line.strip()
                 elif not line:
                     continue
         return adapters
     # Метод для отображения результатов ipconfig
-    def display_ipconfig_result(self, adapters):
-        self.adapter_tabs.clear()
+    def display_ipconfig_result(self, adapters, result):
+        self.adapter_tabs.clear() # очистка вкладок
+        # вкладка полного вывода
+        self.result_text_ipconfig.setPlainText(result)
+        self.adapter_tabs.addTab(self.result_text_ipconfig, "Полный вывод")
+        # создание вкладок для каждого адаптера
         for adapter in adapters:
             tab = QWidget()
             layout = QVBoxLayout()
+            # прижимаем к верху
+            layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+            # вывод параметров адаптера
             for key, value in adapter.items():
                 if key != "name":
                     label = QLabel(f"{key}: {value}")
@@ -432,9 +456,13 @@ class MainWindow(QMainWindow):
     # Метод для выполнения команды ipconfig
     def ipconfig_run(self):
         try:
-            result = subprocess.run(["ipconfig", "/all"], capture_output=True, text=True, timeout=15, encoding='cp866', errors='replace')
+            command_ipconfig = ["ipconfig"]
+            parametr = self.ipconfig_mode.currentData()
+            if parametr != "default":
+                command_ipconfig.append(parametr)
+            result = subprocess.run(command_ipconfig, capture_output=True, text=True, timeout=15, encoding='cp866', errors='replace')
             adapters = self.process_ipconfig_result(result.stdout)
-            self.display_ipconfig_result(adapters)
+            self.display_ipconfig_result(adapters, result.stdout)
         except subprocess.TimeoutExpired:
             self.result_text_ipconfig.setText("Превышено время ожидания.")
         except Exception as error:
