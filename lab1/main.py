@@ -3,7 +3,7 @@ import subprocess
 from PySide6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QLabel, 
                                QPushButton, QLineEdit, QHBoxLayout, QTextEdit, QFormLayout, QSpinBox, 
                                QTableWidget, QHeaderView, QTableWidgetItem, QCheckBox, QComboBox, QSplitter,
-                               QFrame)
+                               QFrame, QMessageBox)
 from PySide6.QtCore import Qt
 import re
 # Класс главного окна приложения
@@ -511,6 +511,16 @@ class MainWindow(QMainWindow):
             # добавляем class id если он есть
             if parametr == "/setclassid" and classid:
                 command_ipconfig.append(classid)
+            # сообщение об опасности
+            dunger = ["/flushdns", "/registerdns", "/release", "/renew", "/setclassid"]
+            if parametr in dunger:
+                answer = QMessageBox.question(self, "Подтверждение действия", 
+                                              "Эта команда изменит сетевое состояние или настройки компьютера.\n"
+                                              "Вы действительно хотите продолжить?", 
+                                              QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, 
+                                              QMessageBox.StandardButton.No)
+                if answer != QMessageBox.StandardButton.Yes:
+                    return
             # запускаем команду   
             result = subprocess.run(command_ipconfig, capture_output=True, text=True, timeout=15, encoding='cp866', errors='replace')
             output = result.stdout + result.stderr
