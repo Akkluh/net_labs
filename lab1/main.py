@@ -386,7 +386,32 @@ class MainWindow(QMainWindow):
         self.ipconfig_mode.addItem("Основная информация", "default")
         self.ipconfig_mode.addItem("Полная информация (/all)", "/all")
         self.ipconfig_mode.addItem("Кэш DNS (/displaydns)", "/displaydns")
+        self.ipconfig_mode.addItem("Очистка DNS-кэша (/flushdns)", "/flushdns")
+        self.ipconfig_mode.addItem("Регистрация DNS (/registerdns)", "/registerdns")
+        self.ipconfig_mode.addItem("Освобождение IP-адреса (/release)", "/release")
+        self.ipconfig_mode.addItem("Обновление IP-адреса (/renew)", "/renew")
+        self.ipconfig_mode.addItem("Просмотр класса DHCP (/showclassid)", "/showclassid")
+        self.ipconfig_mode.addItem("Установка класса DHCP (/setclassid)", "/setclassid")
         layout.addWidget(self.ipconfig_mode)
+
+        # поле для указания адаптера
+        self.ipconfig_label = QLabel("Имя сетевого адаптера:")
+        self.ipconfig_adapter_input = QLineEdit()
+        self.ipconfig_adapter_input.setPlaceholderText("Например, Ethernet")
+        layout.addWidget(self.ipconfig_label)
+        layout.addWidget(self.ipconfig_adapter_input)
+
+        # поле для указания DHCP class ID
+        self.ipconfig_label2 = QLabel("Индетификатор класса DHCP:")
+        self.ipconfig_classid_input = QLineEdit()
+        self.ipconfig_classid_input.setPlaceholderText("Введите Class ID")
+        layout.addWidget(self.ipconfig_label2)
+        layout.addWidget(self.ipconfig_classid_input)
+
+        # отслеживание изменения режима
+        self.ipconfig_mode.currentIndexChanged.connect(self.update_ipconfig_fields)
+        # первоначальное настройка видимости
+        self.update_ipconfig_fields()
 
         # кнопка
         button = QPushButton("Получить информацию о сети")
@@ -403,6 +428,15 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.adapter_tabs)
 
         self.ipconfig_tab.setLayout(layout)
+    # функция для обновления видимости полей ввода
+    def update_ipconfig_fields(self):
+        parametr = self.ipconfig_mode.currentData()
+        adapter_mods = ["/release", "/renew", "/showclassid", "/setclassid"]
+        self.ipconfig_label.setVisible(parametr in adapter_mods)
+        self.ipconfig_adapter_input.setVisible(parametr in adapter_mods)
+        self.ipconfig_label2.setVisible(parametr == adapter_mods[-1])
+        self.ipconfig_classid_input.setVisible(parametr == adapter_mods[-1])
+
     # Метод для обработки результата ipconfig
     def process_ipconfig_result(self, result):
         adapters = [] # список всех адаптеров
@@ -456,13 +490,36 @@ class MainWindow(QMainWindow):
     # Метод для выполнения команды ipconfig
     def ipconfig_run(self):
         try:
+            if self.adapter_tabs.indexOf(self.result_text_ipconfig) == -1:
+                self.adapter_tabs.addTab(self.result_text_ipconfig, "Полный вывод")
+            # формирование команды
             command_ipconfig = ["ipconfig"]
-            parametr = self.ipconfig_mode.currentData()
+            parametr = self.ipconfig_mode.currentData() # получаем параметр
+            # проверяем нужно ли добавлять параметр
             if parametr != "default":
                 command_ipconfig.append(parametr)
+            adapter = self.ipconfig_adapter_input.text().strip()
+            classid = self.ipconfig_classid_input.text().strip()
+            # проверяем обязателен ли ввод адаптера
+            if parametr in ["/showclassid", "/setclassid"] and not adapter:
+                self.result_text_ipconfig.setText("Необходимо указать имя сетевого адаптера")
+                return
+            # добавлеям адаптер если он есть
+            if parametr in ["/release", "/renew", "/showclassid", "/setclassid"]:
+                if adapter:
+                    command_ipconfig.append(adapter)
+            # добавляем class id если он есть
+            if parametr == "/setclassid" and classid:
+                command_ipconfig.append(classid)
+            # запускаем команду   
             result = subprocess.run(command_ipconfig, capture_output=True, text=True, timeout=15, encoding='cp866', errors='replace')
-            adapters = self.process_ipconfig_result(result.stdout)
-            self.display_ipconfig_result(adapters, result.stdout)
+            output = result.stdout + result.stderr
+            # проверяем нужно ли создавать вкладки для адаптеров
+            if parametr == "default" or parametr == "/all":
+                adapters = self.process_ipconfig_result(output)
+            else:
+                adapters = []
+            self.display_ipconfig_result(adapters, output)
         except subprocess.TimeoutExpired:
             self.result_text_ipconfig.setText("Превышено время ожидания.")
         except Exception as error:
