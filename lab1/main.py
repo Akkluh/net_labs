@@ -595,24 +595,40 @@ class MainWindow(QMainWindow):
         self.pathping_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         layout.addWidget(self.pathping_table)
 
+        # поле статистики и полного результата
+        self.result_tabs_pathping = QTabWidget()
+        # вкладка краткой статистики
+        self.pathping_summary = QTextEdit()
+        self.pathping_summary.setReadOnly(True)
+        self.pathping_summary.setPlaceholderText("Краткая статистика появится после проверки.")
+        # вкладка полного вывода
         self.result_text_pathping = QTextEdit()
         self.result_text_pathping.setReadOnly(True)
-        layout.addWidget(self.result_text_pathping)
+        self.result_text_pathping.setPlaceholderText("Полный вывод команды pathping.")
+        # расположение вкладок
+        self.result_tabs_pathping.addTab(self.pathping_summary, "Краткая статистика")
+        self.result_tabs_pathping.addTab(self.result_text_pathping, "Полный вывод")
+        layout.addWidget(self.result_tabs_pathping)
 
         self.pathping_tab.setLayout(layout)
     # Метод для обработки одной строки вывода pathping
     def process_pathping_result(self, result):
-        # Строка статистики: "  1    2мс     0/ 100 =  0%     0/ 100 =  0%  192.168.1.1"
-        # Время может быть "---", если ответа не было
-        stat_result = re.search(r"^\s*(\d+)\s+(?:<?(\d+)\s*мс|-)\s+\d+/\s*\d+\s*=\s*(\d+)%\s+\d+/\s*\d+\s*=\s*(\d+)%\s+(.+)$", result)
+        stat_result = re.search(r"^\s*(\d+)\s+(?:(<\s*\d+|\d+)\s*мс|[-*]+)\s+"
+                                r"(\d+)\s*/\s*(\d+)\s*=\s*(\d+)%\s+"
+                                r"(\d+)\s*/\s*(\d+)\s*=\s*(\d+)%\s+(.+?)\s*$", result)
         if not stat_result:
             return None
-        loss_source = int(stat_result.group(3))
-        loss_node = int(stat_result.group(4))
-        # Вывод о работе узла по потерям на самом узле
+        # получение процентов потерь
+        loss_source = int(stat_result.group(5))
+        loss_node = int(stat_result.group(8))
+        # сохранение времени в исходном виде
+        time_result = stat_result.group(2)
+        if time_result:
+            time_result = time_result.replace(" ", "")
+        # определение состояния узла
         if loss_node == 100:
             status = "Нет ответа"
-        elif loss_node > 0:
+        elif loss_node > 0 or loss_source > 0:
             status = "Есть потери"
         else:
             status = "Норма"
@@ -630,13 +646,13 @@ class MainWindow(QMainWindow):
         self.pathping_table.insertRow(row)
         self.pathping_table.setItem(row, 0, QTableWidgetItem(str(result["hop"])))
         self.pathping_table.setItem(row, 1, QTableWidgetItem(result["ip"]))
-        self.pathping_table.setItem(row, 2, QTableWidgetItem(str(result["time"]) if result["time"] is not None else "---"))
-        self.pathping_table.setItem(row, 3, QTableWidgetItem(str(result["loss_source"])))
-        self.pathping_table.setItem(row, 4, QTableWidgetItem(str(result["loss_node"])))
+        self.pathping_table.setItem(row, 2, QTableWidgetItem(result["time"] if result["time"] is not None else "---"))
+        self.pathping_table.setItem(row, 3, QTableWidgetItem(f'{result["loss_source"]}%'))
+        self.pathping_table.setItem(row, 4, QTableWidgetItem(f'{result["loss_node"]}%'))
         self.pathping_table.setItem(row, 5, QTableWidgetItem(result["status"]))
     # Метод для выполнения команды pathping
     def pathping_run(self):
-        # Получение введенных пользователем данных
+        # получение введенных пользователем данных
         ip = self.pathping_input.text().strip()
         if not ip:
             self.result_text_pathping.setText("Пожалуйста, введите IP-адрес или домен.")
@@ -645,16 +661,16 @@ class MainWindow(QMainWindow):
         queries = self.pathping_queries.value()
         period = self.pathping_period.value()
         timeout = self.pathping_timeout.value()
-        self.pathping_table.setRowCount(0)  # Очистка таблицы перед новым запуском
-        # Формирование команды pathping с указанными параметрами
+        self.pathping_table.setRowCount(0)  # очистка таблицы перед новым запуском
+        # формирование команды pathping с указанными параметрами
         command = ["pathping", "-h", str(hops), "-q", str(queries), "-p", str(period), "-w", str(timeout)]
         if self.pathping_no_resolve.isChecked():
             command.append("-n")
         command.append(ip)
-        # Максимальное время работы: трассировка (3 запроса на прыжок) + сбор статистики
         max_time = hops * (3 * timeout / 1000 + queries * period / 1000) + 30
-        self.result_text_pathping.setText("Выполняется проверка, это может занять некоторое время...")
-        QApplication.processEvents()  # Обновление окна, чтобы сообщение было видно
+        self.pathping_summary.setText("Выполняется проверка, это может занять некоторое время...")
+        self.result_text_pathping.clear()
+        QApplication.processEvents()  # обновление окна, чтобы сообщение было видно
         try:
             result = subprocess.run(command, capture_output=True, text=True, timeout=max_time, encoding='cp866', errors='replace')
             # Разделение вывода на строки и обработка каждой строки
@@ -662,18 +678,26 @@ class MainWindow(QMainWindow):
                 pathping_result = self.process_pathping_result(output)
                 if pathping_result:
                     self.add_pathping_result(pathping_result)
-            # Если в таблицу ничего не попало (например, узел не найден), показываем вывод pathping как есть
+            # сохранение полного вывода
+            full_output = result.stdout
+            if result.stderr:
+                full_output += "\n\nОШИБКА:\n" + result.stderr
+            self.result_text_pathping.setPlainText(full_output if full_output else "Команда не вернула текстовый вывод")
+            # вывод краткой статистики
+            total_hops = self.pathping_table.rowCount()
+            if total_hops == 0:
+                self.pathping_summary.setText("Не удалось получить статистику маршрута")
+            else:
+                lost_hops = 0
+                for row in range(total_hops):
+                    if self.pathping_table.item(row, 5).text() != "Норма":
+                        lost_hops += 1
+                self.pathping_summary.setText(f"Всего узлов: {total_hops}\nУзлов, на пути к которым обнаружены потери: {lost_hops}")
+            self.result_tabs_pathping.setCurrentIndex(0)
+            # если в таблицу ничего не попало
             if self.pathping_table.rowCount() == 0:
                 self.result_text_pathping.setText(result.stdout)
                 return
-            # Вывод краткой статистики
-            total_hops = self.pathping_table.rowCount()
-            lost_hops = 0
-            for row in range(total_hops):
-                if self.pathping_table.item(row, 5).text() != "Норма":
-                    lost_hops += 1
-            self.result_text_pathping.setText(f"Всего узлов: {total_hops}\n"
-                                              f"Узлов с потерями или без ответа: {lost_hops}")
         except subprocess.TimeoutExpired:
             self.result_text_pathping.setText("Превышено время ожидания.")
         except Exception as error:
