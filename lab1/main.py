@@ -3,7 +3,7 @@ import subprocess
 from PySide6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QLabel, 
                                QPushButton, QLineEdit, QHBoxLayout, QTextEdit, QFormLayout, QSpinBox, 
                                QTableWidget, QHeaderView, QTableWidgetItem, QCheckBox, QComboBox, QSplitter,
-                               QFrame, QMessageBox)
+                               QFrame, QMessageBox, QGridLayout)
 from PySide6.QtCore import Qt
 import re
 # Класс главного окна приложения
@@ -813,6 +813,24 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout()
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(10)
+
+        param_layout = QGridLayout()
+
+        self.netstat_a = QCheckBox("-a (Все соединения)")
+        self.netstat_e = QCheckBox("-e (Статистика Ethernet)")
+        self.netstat_n = QCheckBox("-n (Числовой формат)")
+        self.netstat_s = QCheckBox("-s (Статистика протоколов)")
+        self.netstat_r = QCheckBox("-r (Таблица маршрутов)")
+        self.netstat_o = QCheckBox("-o (PID процессов)")
+
+        param_layout.addWidget(self.netstat_a, 0, 0)
+        param_layout.addWidget(self.netstat_e, 0, 1)
+        param_layout.addWidget(self.netstat_n, 1, 0)
+        param_layout.addWidget(self.netstat_s, 1, 1)
+        param_layout.addWidget(self.netstat_r, 2, 0)
+        param_layout.addWidget(self.netstat_o, 2, 1)
+
+        layout.addLayout(param_layout)
 
         button = QPushButton("Получить информацию")
         button.clicked.connect(self.netstat_run)
