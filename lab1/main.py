@@ -537,80 +537,156 @@ class MainWindow(QMainWindow):
 # PATHPING
     # Метод для создания вкладки PathPing
     def create_pathping_tab(self):
-        layout = QVBoxLayout()
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(10)
-        input_layout = QHBoxLayout()
-        form_layout = QFormLayout()
+            layout = QVBoxLayout()
+            layout.setContentsMargins(10, 10, 10, 10)
+            layout.setSpacing(10)
 
-        label = QLabel("IP-адрес или домен:")
-        self.pathping_input = QLineEdit()
-        self.pathping_input.setPlaceholderText("Введите IP-адрес или домен:")
+            input_layout = QHBoxLayout()
+            params_layout = QVBoxLayout()
+            params_layout.setSpacing(8)
 
-        button = QPushButton("Проверить")
-        button.clicked.connect(self.pathping_run)
+            label = QLabel("IP-адрес или домен:")
+            self.pathping_input = QLineEdit()
+            self.pathping_input.setPlaceholderText("Введите IP-адрес или домен:")
 
-        input_layout.addWidget(label)
-        input_layout.addWidget(self.pathping_input)
-        layout.addLayout(input_layout)
+            input_layout.addWidget(label)
+            input_layout.addWidget(self.pathping_input)
+            layout.addLayout(input_layout)
 
-        # Максимальное число прыжков (параметр -h)
-        self.pathping_hops = QSpinBox()
-        self.pathping_hops.setRange(1, 255)
-        self.pathping_hops.setValue(30)
+            # Максимальное число прыжков (-h)
+            self.pathping_hops = QSpinBox()
+            self.pathping_hops.setRange(1, 255)
+            self.pathping_hops.setValue(30)
+            self.pathping_hops_check = QCheckBox("Максимум прыжков (-h)")
+            self.pathping_hops.setEnabled(False)
+            self.pathping_hops_check.toggled.connect(self.pathping_hops.setEnabled)
 
-        # Число запросов на каждый узел (параметр -q)
-        self.pathping_queries = QSpinBox()
-        self.pathping_queries.setRange(1, 1000)
-        self.pathping_queries.setValue(10)
+            # Число запросов на каждый узел (-q)
+            self.pathping_queries = QSpinBox()
+            self.pathping_queries.setRange(1, 1000)
+            self.pathping_queries.setValue(10)
+            self.pathping_queries_check = QCheckBox("Запросов на узел (-q)")
+            self.pathping_queries.setEnabled(False)
+            self.pathping_queries_check.toggled.connect(self.pathping_queries.setEnabled)
 
-        # Пауза между запросами в мс (параметр -p)
-        self.pathping_period = QSpinBox()
-        self.pathping_period.setRange(1, 10000)
-        self.pathping_period.setValue(250)
+            # Пауза между запросами (-p)
+            self.pathping_period = QSpinBox()
+            self.pathping_period.setRange(1, 10000)
+            self.pathping_period.setValue(250)
+            self.pathping_period_check = QCheckBox("Пауза между запросами (-p)")
+            self.pathping_period.setEnabled(False)
+            self.pathping_period_check.toggled.connect(self.pathping_period.setEnabled)
 
-        # Время ожидания ответа в мс (параметр -w)
-        self.pathping_timeout = QSpinBox()
-        self.pathping_timeout.setRange(1, 10000)
-        self.pathping_timeout.setValue(3000)
+            # Время ожидания ответа (-w)
+            self.pathping_timeout = QSpinBox()
+            self.pathping_timeout.setRange(1, 10000)
+            self.pathping_timeout.setValue(3000)
+            self.pathping_timeout_check = QCheckBox("Таймаут (-w)")
+            self.pathping_timeout.setEnabled(False)
+            self.pathping_timeout_check.toggled.connect(self.pathping_timeout.setEnabled)
 
-        # Не определять имена узлов (параметр -n)
-        self.pathping_no_resolve = QCheckBox("Не определять имена узлов (-n)")
-        self.pathping_no_resolve.setChecked(True)
+            # Свободный выбор маршрута (-g)
+            self.pathping_route = QLineEdit()
+            self.pathping_route.setPlaceholderText("IP-адреса узлов через пробел")
+            self.pathping_route_check = QCheckBox("Свободный маршрут (-g)")
+            self.pathping_route.setEnabled(False)
+            self.pathping_route_check.toggled.connect(self.pathping_route.setEnabled)
 
-        form_layout.addRow("Максимум прыжков:", self.pathping_hops)
-        form_layout.addRow("Число запросов на узел:", self.pathping_queries)
-        form_layout.addRow("Пауза между запросами (мс):", self.pathping_period)
-        form_layout.addRow("Время ожидания (мс):", self.pathping_timeout)
-        form_layout.addRow(self.pathping_no_resolve)
-        layout.addLayout(form_layout)
+            # Адрес исходного интерфейса (-i)
+            self.pathping_source = QLineEdit()
+            self.pathping_source.setPlaceholderText("Исходный IP-адрес")
+            self.pathping_source_check = QCheckBox("Исходный адрес (-i)")
+            self.pathping_source.setEnabled(False)
+            self.pathping_source_check.toggled.connect(self.pathping_source.setEnabled)
 
-        layout.addWidget(button)
+            # Не определять имена узлов (-n)
+            self.pathping_no_resolve = QCheckBox("Не определять имена узлов (-n)")
 
-        self.pathping_table = QTableWidget()
-        self.pathping_table.setColumnCount(6)
-        self.pathping_table.setHorizontalHeaderLabels(["Прыжок", "IP-адрес", "Время (мс)", "Потери до узла (%)", "Потери на узле (%)", "Результат"])
-        self.pathping_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.pathping_table.verticalHeader().setVisible(False)
-        self.pathping_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        layout.addWidget(self.pathping_table)
+            # Использовать IPv4 (-4)
+            self.pathping_ipv4 = QCheckBox("Использовать IPv4 (-4)")
 
-        # поле статистики и полного результата
-        self.result_tabs_pathping = QTabWidget()
-        # вкладка краткой статистики
-        self.pathping_summary = QTextEdit()
-        self.pathping_summary.setReadOnly(True)
-        self.pathping_summary.setPlaceholderText("Краткая статистика появится после проверки.")
-        # вкладка полного вывода
-        self.result_text_pathping = QTextEdit()
-        self.result_text_pathping.setReadOnly(True)
-        self.result_text_pathping.setPlaceholderText("Полный вывод команды pathping.")
-        # расположение вкладок
-        self.result_tabs_pathping.addTab(self.pathping_summary, "Краткая статистика")
-        self.result_tabs_pathping.addTab(self.result_text_pathping, "Полный вывод")
-        layout.addWidget(self.result_tabs_pathping)
+            # Использовать IPv6 (-6)
+            self.pathping_ipv6 = QCheckBox("Использовать IPv6 (-6)")
 
-        self.pathping_tab.setLayout(layout)
+            # Взаимоисключение IPv4 и IPv6
+            def toggle_pathping_ipv4(checked):
+                self.pathping_ipv6.setEnabled(not checked)
+                if checked:
+                    self.pathping_ipv6.setChecked(False)
+
+            def toggle_pathping_ipv6(checked):
+                self.pathping_ipv4.setEnabled(not checked)
+                if checked:
+                    self.pathping_ipv4.setChecked(False)
+
+            self.pathping_ipv4.toggled.connect(toggle_pathping_ipv4)
+            self.pathping_ipv6.toggled.connect(toggle_pathping_ipv6)
+
+            # Группировка чекбокса и поля ввода
+            def group_param(checkbox, field):
+                group = QWidget()
+                group_layout = QHBoxLayout(group)
+                group_layout.setContentsMargins(0, 0, 0, 0)
+                group_layout.setSpacing(6)
+
+                field.setFixedWidth(110)
+                group_layout.addWidget(checkbox, 1)
+                group_layout.addWidget(field)
+
+                return group
+
+            # Строка из двух параметров
+            def make_row(c1, s1, c2, s2):
+                row = QHBoxLayout()
+                row.setSpacing(16)
+                row.addWidget(group_param(c1, s1), 1)
+                row.addWidget(group_param(c2, s2), 1)
+                return row
+
+            # Расположение параметров
+            params_layout.addLayout(make_row(self.pathping_hops_check, self.pathping_hops, self.pathping_queries_check, self.pathping_queries))
+            params_layout.addLayout(make_row(self.pathping_period_check, self.pathping_period, self.pathping_timeout_check, self.pathping_timeout))
+            params_layout.addLayout(make_row(self.pathping_route_check, self.pathping_route, self.pathping_source_check, self.pathping_source))
+
+            flags_row = QHBoxLayout()
+            flags_row.addWidget(self.pathping_no_resolve, 1)
+            flags_row.addWidget(self.pathping_ipv4, 1)
+            flags_row.addWidget(self.pathping_ipv6, 1)
+            params_layout.addLayout(flags_row)
+
+            layout.addLayout(params_layout)
+
+            # Кнопка запуска
+            self.pathping_button = QPushButton("Проверить")
+            self.pathping_button.clicked.connect(self.pathping_run)
+            layout.addWidget(self.pathping_button)
+
+            # Таблица результатов
+            self.pathping_table = QTableWidget()
+            self.pathping_table.setColumnCount(6)
+            self.pathping_table.setHorizontalHeaderLabels(["Прыжок", "IP-адрес", "Время (мс)", "Потери до узла (%)", "Потери на узле (%)", "Результат"])
+            self.pathping_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+            self.pathping_table.verticalHeader().setVisible(False)
+            self.pathping_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+            layout.addWidget(self.pathping_table)
+
+            # вкладки статистики и полного результата
+            self.result_tabs_pathping = QTabWidget()
+            # статистика
+            self.pathping_summary = QTextEdit()
+            self.pathping_summary.setReadOnly(True)
+            self.pathping_summary.setPlaceholderText("Краткая статистика появится после проверки.")
+            # полный вывод
+            self.result_text_pathping = QTextEdit()
+            self.result_text_pathping.setReadOnly(True)
+            self.result_text_pathping.setPlaceholderText("Полный вывод команды pathping.")
+            # расположенеи вкладок в интерфейсе
+            self.result_tabs_pathping.addTab(self.pathping_summary, "Краткая статистика")
+            self.result_tabs_pathping.addTab(self.result_text_pathping, "Полный вывод")
+            layout.addWidget(self.result_tabs_pathping)
+
+            self.pathping_tab.setLayout(layout)
+
     # Метод для обработки одной строки вывода pathping
     def process_pathping_result(self, result):
         stat_result = re.search(r"^\s*(\d+)\s+(?:(<\s*\d+|\d+)\s*мс|[-*]+)\s+"
