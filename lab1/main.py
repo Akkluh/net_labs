@@ -832,6 +832,14 @@ class MainWindow(QMainWindow):
 
         layout.addLayout(param_layout)
 
+        protocol_layout = QHBoxLayout()
+        protocol_layout.addWidget(QLabel("Протокол:"))
+        self.netstat_protocol = QComboBox()
+        self.netstat_protocol.addItems(["Все протоколы", "TCP", "UDP", "IP"])
+        protocol_layout.addWidget(self.netstat_protocol)
+
+        layout.addLayout(protocol_layout)
+
         button = QPushButton("Получить информацию")
         button.clicked.connect(self.netstat_run)
         layout.addWidget(button)
@@ -841,10 +849,48 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.result_text_netstat)
 
         self.netstat_tab.setLayout(layout)
+        self.netstat_s.stateChanged.connect(self.update_netstat_fields)
+        self.update_netstat_fields()
+    # метод обновления поля протокола
+    def update_netstat_fields(self):
+        self.netstat_protocol.setEnabled(self.netstat_s.isChecked())
     # Метод для выполнения команды netstat
     def netstat_run(self):
         try:
-            result = subprocess.run(["netstat", "-ano"], capture_output=True, text=True, timeout=30, encoding='cp866', errors='replace')
+            # формирование команды netstat
+            command = ["netstat"]
+            # -a
+            if self.netstat_a.isChecked():
+                command.append("-a")
+            # -e
+            if self.netstat_e.isChecked():
+                command.append("-e")
+            # -n
+            if self.netstat_n.isChecked():
+                command.append("-n")
+            # -s
+            if self.netstat_s.isChecked():
+                command.append("-s")
+            # -r
+            if self.netstat_r.isChecked():
+                command.append("-r")
+            # -o
+            if self.netstat_o.isChecked():
+                command.append("-o")
+            # выбор протокола
+            if self.netstat_s.isChecked():
+                protocol = self.netstat_protocol.currentText()
+                if protocol != "Все протоколы":
+                    command.extend(["-p", protocol])
+            # вызов команды
+            result = subprocess.run(command, capture_output=True, text=True, timeout=30, encoding='cp866', errors='replace')
+            output = result.stdout
+            if result.stderr:
+                output += "\n" + result.stderr
+            if result.returncode != 0:
+                self.result_text_netstat.setPlainText(f"Ошибка выполнения программы:\n{output}")
+            else:
+                self.result_text_netstat.setPlainText(output)
             self.result_text_netstat.setPlainText(result.stdout)
         except subprocess.TimeoutExpired:
             self.result_text_netstat.setText("Превышено время ожидания.")
