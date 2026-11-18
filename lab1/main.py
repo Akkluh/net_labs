@@ -883,7 +883,7 @@ class MainWindow(QMainWindow):
                 if protocol != "Все протоколы":
                     command.extend(["-p", protocol])
             # вызов команды
-            result = subprocess.run(command, capture_output=True, text=True, timeout=30, encoding='cp866', errors='replace')
+            result = subprocess.run(command, capture_output=True, text=True, timeout=360, encoding='cp866', errors='replace')
             output = result.stdout
             if result.stderr:
                 output += "\n" + result.stderr
