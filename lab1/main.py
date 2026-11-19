@@ -1,11 +1,131 @@
 import sys
+import math
 import subprocess
 from PySide6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QLabel, 
                                QPushButton, QLineEdit, QHBoxLayout, QTextEdit, QFormLayout, QSpinBox, 
                                QTableWidget, QHeaderView, QTableWidgetItem, QCheckBox, QComboBox, QSplitter,
-                               QFrame, QMessageBox, QGridLayout)
-from PySide6.QtCore import Qt
+                               QFrame, QMessageBox, QGridLayout, QGraphicsView, QGraphicsScene)
+from PySide6.QtCore import Qt, QTimer, QPointF, QRectF
+from PySide6.QtGui import QPainter, QPen, QBrush, QColor
 import re
+# Класс для рисования графа
+class GraphView(QGraphicsView):
+    def __init__(self):
+        super().__init__()
+        self.gscene = QGraphicsScene(self)   # сцена
+        self.setScene(self.gscene)
+        self.setRenderHint(QPainter.RenderHint.Antialiasing)  # сглаживание линий
+        self.points = []     # координаты узлов
+        self.packet = None   # пакет
+        self.progress = 0.0  # положение пакета внутри текущего отрезка
+        self.segment = 0     # номер текущего отрезка маршрута
+        self.route = []      # путь пакета
+        self.timer = QTimer(self) #таймер
+        self.timer.timeout.connect(self.move_packet)
+
+    # Очистка графа
+    def clear_graph(self):
+        self.timer.stop()
+        self.gscene.clear()
+        self.points = []
+        self.packet = None
+
+    # Добавление узла
+    def add_node(self, pos, label, color, tip=""):
+        node = self.gscene.addEllipse(-22, -22, 44, 44, QPen(Qt.GlobalColor.black), QBrush(QColor(color)))
+        node.setPos(pos)
+        node.setToolTip(tip)   # подсказка при наведении
+        node.setZValue(1)      # узлы рисуются поверх линий
+        text = self.gscene.addSimpleText(label)
+        text.setBrush(self.palette().text())  # цвет текста берётся из темы системы
+        text.setPos(pos.x() - text.boundingRect().width() / 2, pos.y() + 26)
+
+    # Добавление ребра между двумя точками
+    def add_edge(self, a, b, color="#9e9e9e", label=""):
+        self.gscene.addLine(a.x(), a.y(), b.x(), b.y(), QPen(QColor(color), 2))
+        if label:
+            text = self.gscene.addSimpleText(label)
+            text.setBrush(self.palette().text())
+            text.setPos((a.x() + b.x()) / 2, (a.y() + b.y()) / 2)
+
+    # Подгонка масштаба
+    def fit(self):
+        rect = self.gscene.itemsBoundingRect().adjusted(-60, -60, 60, 60)
+        # минимальный размер
+        rect = rect.united(QRectF(rect.center().x() - 300, rect.center().y() - 150, 600, 300))
+        self.setSceneRect(rect)
+        self.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
+
+    # При изменении размера окна заново подгоняем масштаб
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.fitInView(self.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+
+    # Граф-цепочка для pathping. nodes: список (подпись, цвет, подсказка)
+    def draw_path(self, nodes):
+        self.clear_graph()
+        for i in range(len(nodes)):
+            row, col = divmod(i, 6)          # по 6 узлов в строке
+            if row % 2 == 1:
+                col = 5 - col                # "змейка": нечётные строки идут справа налево
+            self.points.append(QPointF(col * 150, row * 120))
+        for i in range(len(self.points) - 1):
+            self.add_edge(self.points[i], self.points[i + 1])
+        for point, (label, color, tip) in zip(self.points, nodes):
+            self.add_node(point, label, color, tip)
+        self.fit()
+
+    # Граф-звезда для netstat. groups: {удалённый хост: [описания соединений]}
+    def draw_star(self, center_label, groups):
+        self.clear_graph()
+        if not groups:
+            self.gscene.addText("Нет соединений для отображения.\nПопробуйте включить только параметр -a или параметр -a и -n.")
+            self.fit()
+            return
+        hosts = sorted(groups, key=lambda h: len(groups[h]), reverse=True)[:25]
+        center = QPointF(0, 0)
+        radius = 150 + 8 * len(hosts)
+        for i, host in enumerate(hosts):
+            angle = 2 * math.pi * i / len(hosts)
+            pos = QPointF(radius * math.cos(angle), radius * math.sin(angle))
+            lines = groups[host]
+            # зелёное ребро, если есть установленное соединение
+            color = "#4caf50" if any("ESTABLISHED" in l for l in lines) else "#9e9e9e"
+            count = f"x{len(lines)}" if len(lines) > 1 else ""
+            self.add_edge(center, pos, color, count)
+            self.add_node(pos, host[:22], "#90a4ae", "\n".join(lines))
+        self.add_node(center, center_label, "#2196f3")
+        self.fit()
+
+    # Запуск анимации
+    def play(self):
+        if len(self.points) < 2:
+            return
+        self.timer.stop()
+        if self.packet is not None:
+            self.gscene.removeItem(self.packet)
+        self.packet = self.gscene.addEllipse(-7, -7, 14, 14, QPen(Qt.GlobalColor.black), QBrush(QColor("#ffeb3b")))
+        self.packet.setZValue(2)
+        self.route = self.points + self.points[-2::-1]  # туда и обратно
+        self.segment = 0
+        self.progress = 0.0
+        self.packet.setPos(self.route[0])
+        self.timer.start(20)  # шаг анимации каждые 20 мс
+
+    # Один шаг анимации
+    def move_packet(self):
+        self.progress += 0.04
+        if self.progress >= 1:
+            self.progress = 0.0
+            self.segment += 1
+            if self.segment >= len(self.route) - 1:   # маршрут закончился
+                self.packet.setPos(self.route[-1])
+                self.timer.stop()
+                return
+        a = self.route[self.segment]
+        b = self.route[self.segment + 1]
+        self.packet.setPos(a + (b - a) * self.progress)
+
 # Класс главного окна приложения
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -681,6 +801,16 @@ class MainWindow(QMainWindow):
         # расположенеи вкладок в интерфейсе
         self.result_tabs_pathping.addTab(self.pathping_summary, "Краткая статистика")
         self.result_tabs_pathping.addTab(self.result_text_pathping, "Полный вывод")
+
+        # вкладка с графом маршрута
+        self.pathping_graph = GraphView()
+        self.pathping_graph.setMinimumHeight(250)
+        graph_tab = self.make_graph_tab(
+            self.pathping_graph,
+            "Зелёный узел - норма, оранжевый - есть потери, красный - нет ответа, синий - этот компьютер. "
+            "Жёлтая точка - пакет.",
+            play_button=True)
+        self.result_tabs_pathping.addTab(graph_tab, "Граф маршрута")
         layout.addWidget(self.result_tabs_pathping)
 
         self.pathping_tab.setLayout(layout)
@@ -799,6 +929,7 @@ class MainWindow(QMainWindow):
                         lost_hops += 1
                 self.pathping_summary.setText(f"Всего узлов: {total_hops}\nУзлов, на пути к которым обнаружены потери: {lost_hops}")
             self.result_tabs_pathping.setCurrentIndex(0)
+            self.draw_pathping_graph()
             # если в таблицу ничего не попало
             if self.pathping_table.rowCount() == 0:
                 self.result_text_pathping.setText(result.stdout)
@@ -846,7 +977,15 @@ class MainWindow(QMainWindow):
 
         self.result_text_netstat = QTextEdit()
         self.result_text_netstat.setReadOnly(True)
-        layout.addWidget(self.result_text_netstat)
+        self.netstat_graph = GraphView()
+        self.netstat_tabs = QTabWidget()
+        self.netstat_tabs.addTab(self.result_text_netstat, "Вывод")
+        self.netstat_tabs.addTab(
+            self.make_graph_tab(self.netstat_graph,
+                                "Зелёная линия - есть соединение ESTABLISHED, серая - остальные состояния. "
+                                "Наведите курсор на узел, чтобы увидеть порты и состояния."),
+            "Граф соединений")
+        layout.addWidget(self.netstat_tabs)
 
         self.netstat_tab.setLayout(layout)
         self.netstat_s.stateChanged.connect(self.update_netstat_fields)
@@ -891,11 +1030,57 @@ class MainWindow(QMainWindow):
                 self.result_text_netstat.setPlainText(f"Ошибка выполнения программы:\n{output}")
             else:
                 self.result_text_netstat.setPlainText(output)
-            self.result_text_netstat.setPlainText(result.stdout)
+            self.draw_netstat_graph(output)
         except subprocess.TimeoutExpired:
             self.result_text_netstat.setText("Превышено время ожидания.")
         except Exception as error:
             self.result_text_netstat.setText(f"Ошибка: {error}")
+# ГРАФЫ
+    # Вкладка с графом
+    def make_graph_tab(self, graph, legend, play_button=False):
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.addWidget(graph, 1)
+        if play_button:
+            button = QPushButton("Показать движение пакета")
+            button.clicked.connect(graph.play)
+            layout.addWidget(button)
+        legend_label = QLabel(legend)
+        legend_label.setWordWrap(True)
+        layout.addWidget(legend_label)
+        return tab
+
+    # Построение графа маршрута по уже заполненной таблице pathping
+    def draw_pathping_graph(self):
+        if self.pathping_table.rowCount() == 0:
+            return
+        colors = {"Норма": "#4caf50", "Есть потери": "#ff9800", "Нет ответа": "#f44336"}
+        nodes = [("Этот компьютер", "#2196f3", "")]
+        for row in range(self.pathping_table.rowCount()):
+            ip = self.pathping_table.item(row, 1).text()
+            # если указано "имя [адрес]", показываем только адрес
+            if "[" in ip:
+                ip = ip[ip.find("[") + 1: ip.find("]")]
+            status = self.pathping_table.item(row, 5).text()
+            tip = (f"Прыжок {self.pathping_table.item(row, 0).text()}\n"
+                   f"Потери до узла: {self.pathping_table.item(row, 3).text()}\n"
+                   f"Потери на узле: {self.pathping_table.item(row, 4).text()}")
+            nodes.append((ip, colors[status], tip))
+        self.pathping_graph.draw_path(nodes)
+
+    # Построение графа соединений из вывода netstat
+    def draw_netstat_graph(self, output):
+        groups = {}  # удалённый хост -> список соединений с ним
+        for line in output.splitlines():
+            # строка вида: TCP  192.168.1.5:50123  142.250.1.1:443  ESTABLISHED
+            match = re.match(r"^\s*(TCP|UDP)\s+\S+:\S+\s+(\S+):(\S+)\s*(\S*)", line)
+            if not match:
+                continue
+            protocol, host, port, state = match.groups()
+            if host in ("0.0.0.0", "*", "[::]"):   # слушающие порты, удалённого узла нет
+                continue
+            groups.setdefault(host, []).append(f"{protocol} порт {port} {state}".strip())
+        self.netstat_graph.draw_star("Этот компьютер", groups)
 # Запуска приложения
 app = QApplication(sys.argv)
 window = MainWindow()
