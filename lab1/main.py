@@ -575,7 +575,7 @@ class MainWindow(QMainWindow):
                 if parametr_space is None and ":" in line:
                     parametr_space = spaces
                 # обработка параметров
-                if spaces == parametr_space and current_adapter:
+                if spaces == parametr_space and current_adapter and ":" in line:
                     key, value = line.split(":", 1)
                     key = key.replace(".", "").strip()
                     current_adapter[key.strip()] = value.strip()
@@ -780,7 +780,14 @@ class MainWindow(QMainWindow):
         # Таблица результатов
         self.pathping_table = QTableWidget()
         self.pathping_table.setColumnCount(6)
-        self.pathping_table.setHorizontalHeaderLabels(["Прыжок", "IP-адрес", "Время (мс)", "Потери до узла (%)", "Потери на узле (%)", "Результат"])
+        self.pathping_table.setHorizontalHeaderLabels([
+            "Прыжок",
+            "IP-адрес",
+            "Время (мс)",
+            "Потери до узла",
+            "Потери на узле",
+            "Результат"
+        ])
         self.pathping_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.pathping_table.verticalHeader().setVisible(False)
         self.pathping_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -815,41 +822,98 @@ class MainWindow(QMainWindow):
 
     # Метод для обработки одной строки вывода pathping
     def process_pathping_result(self, result):
-        stat_result = re.search(r"^\s*(\d+)\s+(?:(<\s*\d+|\d+)\s*мс|[-*]+)\s+(\d+)\s*/\s*(\d+)\s*=\s*(\d+)%\s+(\d+)\s*/\s*(\d+)\s*=\s*(\d+)%\s*(.*?)\s*$", result)
+        stat_result = re.search(
+            r"^\s*(\d+)\s+(?:(<\s*\d+|\d+)\s*мс|[-*]+)\s+"
+            r"(\d+)\s*/\s*(\d+)\s*=\s*(\d+)%\s+"
+            r"(\d+)\s*/\s*(\d+)\s*=\s*(\d+)%\s*(.*?)\s*$",
+            result
+        )
+
         if not stat_result:
             return None
-        # получение процентов потерь
+
+        # Количество потерянных и отправленных пакетов от источника
+        lost_source_count = int(stat_result.group(3))
+        sent_source_count = int(stat_result.group(4))
         loss_source = int(stat_result.group(5))
+
+        # Количество потерянных и отправленных пакетов на узле
+        lost_node_count = int(stat_result.group(6))
+        sent_node_count = int(stat_result.group(7))
         loss_node = int(stat_result.group(8))
-        # сохранение времени в исходном виде
+
+        # Сохранение времени в исходном виде
         time_result = stat_result.group(2)
         if time_result:
             time_result = time_result.replace(" ", "")
-        # определение состояния узла
+
+        # Определение состояния узла
         if loss_node == 100:
             status = "Нет ответа"
         elif loss_node > 0 or loss_source > 0:
             status = "Есть потери"
         else:
             status = "Норма"
+
         return {
             "hop": int(stat_result.group(1)),
             "ip": stat_result.group(9).strip() or f"Узел {stat_result.group(1)}",
             "time": time_result,
             "loss_source": loss_source,
             "loss_node": loss_node,
+            "lost_source_count": lost_source_count,
+            "sent_source_count": sent_source_count,
+            "lost_node_count": lost_node_count,
+            "sent_node_count": sent_node_count,
             "status": status
         }
+
     # Метод для добавления результата pathping в таблицу
     def add_pathping_result(self, result):
         row = self.pathping_table.rowCount()
         self.pathping_table.insertRow(row)
-        self.pathping_table.setItem(row, 0, QTableWidgetItem(str(result["hop"])))
-        self.pathping_table.setItem(row, 1, QTableWidgetItem(result["ip"]))
-        self.pathping_table.setItem(row, 2, QTableWidgetItem(result["time"] if result["time"] is not None else "---"))
-        self.pathping_table.setItem(row, 3, QTableWidgetItem(f'{result["loss_source"]}%'))
-        self.pathping_table.setItem(row, 4, QTableWidgetItem(f'{result["loss_node"]}%'))
-        self.pathping_table.setItem(row, 5, QTableWidgetItem(result["status"]))
+
+        # Формирование статистики потерь от источника
+        if result["loss_source"] is not None:
+            source_loss = (
+                f'{result["lost_source_count"]}/'
+                f'{result["sent_source_count"]} '
+                f'({result["loss_source"]}%)'
+            )
+        else:
+            source_loss = "---"
+
+        # Формирование статистики потерь на узле
+        if result["loss_node"] is not None:
+            node_loss = (
+                f'{result["lost_node_count"]}/'
+                f'{result["sent_node_count"]} '
+                f'({result["loss_node"]}%)'
+            )
+        else:
+            node_loss = "---"
+
+        self.pathping_table.setItem(
+            row, 0, QTableWidgetItem(str(result["hop"]))
+        )
+        self.pathping_table.setItem(
+            row, 1, QTableWidgetItem(result["ip"])
+        )
+        self.pathping_table.setItem(
+            row, 2, QTableWidgetItem(
+                result["time"] if result["time"] is not None else "---"
+            )
+        )
+        self.pathping_table.setItem(
+            row, 3, QTableWidgetItem(source_loss)
+        )
+        self.pathping_table.setItem(
+            row, 4, QTableWidgetItem(node_loss)
+        )
+        self.pathping_table.setItem(
+            row, 5, QTableWidgetItem(result["status"])
+        )
+
     # Метод для выполнения команды pathping
     def pathping_run(self):
         # получение введенных пользователем данных
@@ -907,26 +971,117 @@ class MainWindow(QMainWindow):
         try:
             result = subprocess.run(command, capture_output=True, text=True, encoding='cp866', errors='replace')
 
-            # Разделение вывода на строки и обработка каждой строки
+            # Словарь результатов, ключом является номер перехода
+            hops = {}
+            # Флаг первой фазы выполнения pathping
+            tracing = True
+            # Разделение вывода на строки
             for output in result.stdout.splitlines():
+                # Определение завершения первой фазы
+                if re.search(r"Подсч[её]т статистики", output, re.IGNORECASE):
+                    tracing = False
+                # Обработка итоговой статистики
                 pathping_result = self.process_pathping_result(output)
                 if pathping_result:
-                    self.add_pathping_result(pathping_result)
+                    hop = pathping_result["hop"]
+                    hops[hop] = pathping_result
+                    tracing = False
+                    continue
+                # Обработка первой фазы — трассировки маршрута
+                if tracing:
+                    route_result = re.match(
+                        r"^\s*(\d+)\s+(.+?)\s*$",
+                        output
+                    )
+                    if route_result:
+                        hop = int(route_result.group(1))
+                        address = route_result.group(2).strip()
+                        # Нулевой переход — текущий компьютер
+                        if hop == 0:
+                            continue
+                        # Проверка отсутствия ответа от узла
+                        if re.fullmatch(r"(?:\*\s*)+", address):
+                            address = f"Узел {hop}"
+                            status = "Нет ответа"
+                        else:
+                            status = "Нет статистики"
+                        # Сохраняем обнаруженный переход
+                        hops[hop] = {
+                            "hop": hop,
+                            "ip": address,
+                            "time": None,
+                            "loss_source": None,
+                            "loss_node": None,
+                            "lost_source_count": None,
+                            "sent_source_count": None,
+                            "lost_node_count": None,
+                            "sent_node_count": None,
+                            "status": status
+                        }
+            # Добавление результатов в порядке следования узлов
+            for hop in sorted(hops):
+                self.add_pathping_result(hops[hop])
             # сохранение полного вывода
             full_output = result.stdout
             if result.stderr:
                 full_output += "\n\nОШИБКА:\n" + result.stderr
             self.result_text_pathping.setPlainText(full_output if full_output else "Команда не вернула текстовый вывод")
-            # вывод краткой статистики
+            # Вывод краткой статистики
             total_hops = self.pathping_table.rowCount()
             if total_hops == 0:
-                self.pathping_summary.setText("Не удалось получить статистику маршрута")
+                self.pathping_summary.setText(
+                    "Не удалось получить информацию о маршруте"
+                )
             else:
+                normal_hops = 0
                 lost_hops = 0
+                no_answer_hops = 0
+                no_stat_hops = 0
+
                 for row in range(total_hops):
-                    if self.pathping_table.item(row, 5).text() != "Норма":
+                    status = self.pathping_table.item(row, 5).text()
+                    if status == "Норма":
+                        normal_hops += 1
+                    elif status == "Есть потери":
                         lost_hops += 1
-                self.pathping_summary.setText(f"Всего узлов: {total_hops}\nУзлов, на пути к которым обнаружены потери: {lost_hops}")
+                    elif status == "Нет ответа":
+                        no_answer_hops += 1
+                    elif status == "Нет статистики":
+                        no_stat_hops += 1
+                summary = (
+                    f"Всего переходов: {total_hops}\n"
+                    f"Узлов без обнаруженных потерь: {normal_hops}\n"
+                    f"Узлов с обнаруженными потерями: {lost_hops}\n"
+                    f"Узлов без ответа: {no_answer_hops}\n"
+                    f"Узлов без статистики: {no_stat_hops}"
+                )
+                # Проверка достижения конечного узла
+                target_match = re.search(
+                    r"Трассировка маршрута к\s+([^\r\n]+)",
+                    result.stdout
+                )
+                target = target_match.group(1).strip() if target_match else ip
+                def extract_address(address):
+                    match = re.search(r"\[([^\]]+)\]", address)
+                    if match:
+                        return match.group(1).strip().lower()
+                    return address.strip().lower()
+
+                last_node = hops[max(hops)]
+
+                if extract_address(last_node["ip"]) != extract_address(target):
+                    summary += (
+                        "\n\nМаршрут исследован не полностью."
+                        "\nДостижение конечного узла не подтверждено."
+                    )
+                elif last_node["loss_source"] is None:
+                    summary += (
+                        "\n\nКонечный узел обнаружен,"
+                        " но статистика для него не получена."
+                    )
+
+                self.pathping_summary.setText(summary)
+
             self.result_tabs_pathping.setCurrentIndex(0)
             self.draw_pathping_graph()
             # если в таблицу ничего не попало
@@ -1109,21 +1264,31 @@ class MainWindow(QMainWindow):
         layout.addWidget(legend_label)
         return tab
 
+    
     # Построение графа маршрута по уже заполненной таблице pathping
     def draw_pathping_graph(self):
         if self.pathping_table.rowCount() == 0:
             return
-        colors = {"Норма": "#4caf50", "Есть потери": "#ff9800", "Нет ответа": "#f44336"}
+        colors = {
+            "Норма": "#4caf50",
+            "Есть потери": "#ff9800",
+            "Нет ответа": "#f44336",
+            "Нет статистики": "#9e9e9e"
+        }
         nodes = [("Этот компьютер", "#2196f3", "")]
         for row in range(self.pathping_table.rowCount()):
             ip = self.pathping_table.item(row, 1).text()
-            # если указано "имя [адрес]", показываем только адрес
-            if "[" in ip:
+            # Если указано "имя [адрес]", показываем только адрес
+            if "[" in ip and "]" in ip:
                 ip = ip[ip.find("[") + 1: ip.find("]")]
             status = self.pathping_table.item(row, 5).text()
-            tip = (f"Прыжок {self.pathping_table.item(row, 0).text()}\n"
-                   f"Потери до узла: {self.pathping_table.item(row, 3).text()}\n"
-                   f"Потери на узле: {self.pathping_table.item(row, 4).text()}")
+            tip = (
+                f"Прыжок {self.pathping_table.item(row, 0).text()}\n"
+                f"Время: {self.pathping_table.item(row, 2).text()} мс\n"
+                f"Потери до узла: {self.pathping_table.item(row, 3).text()}\n"
+                f"Потери на узле: {self.pathping_table.item(row, 4).text()}\n"
+                f"Состояние: {status}"
+            )
             nodes.append((ip, colors[status], tip))
         self.pathping_graph.draw_path(nodes)
 
@@ -1147,17 +1312,17 @@ window.setWindowTitle("Network Analyzer")
 window.resize(1200, 1000)
 window.show()
 # для теста
-# window.pathping_graph.draw_path([
-#     ("Этот компьютер", "#2196f3", ""),
-#     ("192.168.1.1", "#4caf50", "Роутер"),
-#     ("Узел 2", "#f44336", "Не отвечает"),
-#     ("172.27.0.109", "#4caf50", ""),
-#     ("172.27.0.85", "#4caf50", ""),
-#     ("85.175.221.233", "#4caf50", ""),
-#     ("Узел 6", "#f44336", "Не отвечает"),
-#     ("173.194.121.4", "#ff9800", "Есть потери"),
-#     ("142.250.236.117", "#4caf50", ""),
-#     ("142.251.48.45", "#4caf50", ""),
-#     ("dns.google", "#4caf50", "Цель 8.8.8.8"),
-# ])
+window.pathping_graph.draw_path([
+    ("Этот компьютер", "#2196f3", ""),
+    ("192.168.1.1", "#4caf50", "Роутер"),
+    ("Узел 2", "#f44336", "Не отвечает"),
+    ("172.27.0.109", "#4caf50", ""),
+    ("172.27.0.85", "#4caf50", ""),
+    ("85.175.221.233", "#4caf50", ""),
+    ("Узел 6", "#f44336", "Не отвечает"),
+    ("173.194.121.4", "#ff9800", "Есть потери"),
+    ("142.250.236.117", "#4caf50", ""),
+    ("142.251.48.45", "#4caf50", ""),
+    ("dns.google", "#4caf50", "Цель 8.8.8.8"),
+])
 sys.exit(app.exec())
