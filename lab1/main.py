@@ -5,8 +5,8 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget, Q
                                QPushButton, QLineEdit, QHBoxLayout, QTextEdit, QFormLayout, QSpinBox, 
                                QTableWidget, QHeaderView, QTableWidgetItem, QCheckBox, QComboBox, QSplitter,
                                QFrame, QMessageBox, QGridLayout, QGraphicsView, QGraphicsScene)
-from PySide6.QtCore import Qt, QTimer, QPointF, QRectF
-from PySide6.QtGui import QPainter, QPen, QBrush, QColor
+from PySide6.QtCore import Qt, QTimer, QPointF, QRectF, QProcess  # QProcess для интервального netstat
+from PySide6.QtGui import QPainter, QPen, QBrush, QColor, QTextCursor  # Курсор для добавления вывода netstat
 import re
 # Класс для рисования графа
 class GraphView(QGraphicsView):
@@ -61,7 +61,7 @@ class GraphView(QGraphicsView):
         super().resizeEvent(event)
         self.fitInView(self.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
-    # Граф-цепочка для pathping. nodes: список (подпись, цвет, подсказка)
+    # Граф-цепочка для pathping
     def draw_path(self, nodes):
         self.clear_graph()
         for i in range(len(nodes)):
@@ -75,7 +75,7 @@ class GraphView(QGraphicsView):
             self.add_node(point, label, color, tip)
         self.fit()
 
-    # Граф-звезда для netstat. groups: {удалённый хост: [описания соединений]}
+    # Граф для netstat
     def draw_star(self, center_label, groups):
         self.clear_graph()
         if not groups:
@@ -467,17 +467,15 @@ class MainWindow(QMainWindow):
                 loss_percentage = (lost_count/sent_count)*100
             else:
                 loss_percentage = 0
-            if receive_count > 0:
-                average_time = total_time/receive_count
-            else:
-                average_time = 0
+            # Среднее время рассчитывается по ответам и отсутствует при полной потере пакетов.
+            average_time = f"{total_time / receive_count:.2f} мс" if receive_count else "---"
             statistic = (f"Отправлено: {sent_count}\n"
                          f"Получено: {receive_count}\n"
                          f"Потеряно: {lost_count}\n"
                          f"Процент потерь: {loss_percentage:.2f}%\n"
                          f"Минимальное время: {min_time if min_time is not None else '---'} мс\n"
                          f"Максимальное время: {max_time if max_time is not None else '---'} мс\n"
-                         f"Среднее время: {average_time:.2f} мс")
+                         f"Среднее время: {average_time}")  # Единица измерения есть только у рассчитанного среднего.
             if route_lines:
                 statistic += "\n\n"+ "\n".join(route_lines)
             if time_lines:
@@ -817,7 +815,7 @@ class MainWindow(QMainWindow):
 
     # Метод для обработки одной строки вывода pathping
     def process_pathping_result(self, result):
-        stat_result = re.search(r"^\s*(\d+)\s+(?:(<\s*\d+|\d+)\s*мс|[-*]+)\s+(\d+)\s*/\s*(\d+)\s*=\s*(\d+)%\s+(\d+)\s*/\s*(\d+)\s*=\s*(\d+)%\s+(.+?)\s*$", result)
+        stat_result = re.search(r"^\s*(\d+)\s+(?:(<\s*\d+|\d+)\s*мс|[-*]+)\s+(\d+)\s*/\s*(\d+)\s*=\s*(\d+)%\s+(\d+)\s*/\s*(\d+)\s*=\s*(\d+)%\s*(.*?)\s*$", result)
         if not stat_result:
             return None
         # получение процентов потерь
@@ -836,7 +834,7 @@ class MainWindow(QMainWindow):
             status = "Норма"
         return {
             "hop": int(stat_result.group(1)),
-            "ip": stat_result.group(9).strip(),
+            "ip": stat_result.group(9).strip() or f"Узел {stat_result.group(1)}",
             "time": time_result,
             "loss_source": loss_source,
             "loss_node": loss_node,
@@ -901,6 +899,7 @@ class MainWindow(QMainWindow):
 
         # подготовка интерфейса
         self.pathping_table.setRowCount(0)
+        self.pathping_graph.clear_graph()
         self.pathping_summary.setText("Выполняется проверка, это может занять некоторое время...")
         self.result_text_pathping.clear()
         QApplication.processEvents()  # обновление окна, чтобы сообщение было видно
@@ -964,16 +963,30 @@ class MainWindow(QMainWindow):
         layout.addLayout(param_layout)
 
         protocol_layout = QHBoxLayout()
-        protocol_layout.addWidget(QLabel("Протокол:"))
+        protocol_layout.addWidget(QLabel("Протокол (-p):"))  # «Все протоколы» оставляет команду без -p.
         self.netstat_protocol = QComboBox()
-        self.netstat_protocol.addItems(["Все протоколы", "TCP", "UDP", "IP"])
+        self.netstat_protocol.addItems(["Все протоколы", "TCP", "UDP", "IP", "ICMP"])
         protocol_layout.addWidget(self.netstat_protocol)
 
         layout.addLayout(protocol_layout)
 
-        button = QPushButton("Получить информацию")
-        button.clicked.connect(self.netstat_run)
-        layout.addWidget(button)
+        # Нулевой интервал означает разовый вывод, положительный передаётся в netstat.
+        interval_layout = QHBoxLayout()
+        interval_layout.addWidget(QLabel("Интервал обновления (0 — один раз):"))
+        self.netstat_interval = QSpinBox()
+        self.netstat_interval.setRange(0, 3600)
+        self.netstat_interval.setSuffix(" с")
+        interval_layout.addWidget(self.netstat_interval)
+        layout.addLayout(interval_layout)
+
+        # Кнопки запуска и остановки интервального режима.
+        button_layout = QHBoxLayout()
+        self.netstat_button = QPushButton("Получить информацию")
+        self.netstat_button.clicked.connect(self.netstat_run)
+        self.netstat_stop_button = QPushButton("Остановить")
+        button_layout.addWidget(self.netstat_button)
+        button_layout.addWidget(self.netstat_stop_button)
+        layout.addLayout(button_layout)
 
         self.result_text_netstat = QTextEdit()
         self.result_text_netstat.setReadOnly(True)
@@ -988,11 +1001,28 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.netstat_tabs)
 
         self.netstat_tab.setLayout(layout)
-        self.netstat_s.stateChanged.connect(self.update_netstat_fields)
+        # С интервалом netstat работает до остановки, поэтому читаем его вывод через Qt.
+        self.netstat_process = QProcess(self)
+        self.netstat_process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        self.netstat_process.readyReadStandardOutput.connect(self.read_netstat_output)
+        self.netstat_process.errorOccurred.connect(self.netstat_interval_error)
+        self.netstat_process.stateChanged.connect(self.update_netstat_fields)
+        self.netstat_stop_button.clicked.connect(self.netstat_process.kill)
+        self.netstat_s.toggled.connect(self.update_netstat_fields)  # Обновляем допустимые протоколы при смене режима.
         self.update_netstat_fields()
-    # метод обновления поля протокола
+    # Обновление поля протокола и кнопок netstat.
     def update_netstat_fields(self):
-        self.netstat_protocol.setEnabled(self.netstat_s.isChecked())
+        # IP и ICMP доступны только при запросе статистики, TCP и UDP доступны и без -s.
+        statistics = self.netstat_s.isChecked()
+        for index in (self.netstat_protocol.findText("IP"), self.netstat_protocol.findText("ICMP")):
+            self.netstat_protocol.model().item(index).setEnabled(statistics)
+        if not statistics and self.netstat_protocol.currentText() in ("IP", "ICMP"):
+            self.netstat_protocol.setCurrentIndex(0)
+
+        # Пока идёт обновление, можно остановить текущий запуск.
+        running = self.netstat_process.state() != QProcess.ProcessState.NotRunning
+        self.netstat_button.setEnabled(not running)
+        self.netstat_stop_button.setEnabled(running)
     # Метод для выполнения команды netstat
     def netstat_run(self):
         try:
@@ -1016,12 +1046,19 @@ class MainWindow(QMainWindow):
             # -o
             if self.netstat_o.isChecked():
                 command.append("-o")
-            # выбор протокола
-            if self.netstat_s.isChecked():
-                protocol = self.netstat_protocol.currentText()
-                if protocol != "Все протоколы":
-                    command.extend(["-p", protocol])
-            # вызов команды
+            # -p фильтрует соединения без -s и статистику вместе с -s.
+            protocol = self.netstat_protocol.currentText()
+            if protocol != "Все протоколы":
+                command.extend(["-p", protocol])
+            # Положительный интервал передаётся последним аргументом в секундах.
+            interval = self.netstat_interval.value()
+            if interval:
+                self.result_text_netstat.clear()
+                self.draw_netstat_graph("")  # Сбрасываем граф перед получением первого списка.
+                self.netstat_graph_output = ""  # Текст текущего списка соединений для графа.
+                self.netstat_process.start(command[0], command[1:] + [str(interval)])
+                return
+            # Разовый вызов по-прежнему выполняется синхронно.
             result = subprocess.run(command, capture_output=True, text=True, timeout=360, encoding='cp866', errors='replace')
             output = result.stdout
             if result.stderr:
@@ -1035,6 +1072,28 @@ class MainWindow(QMainWindow):
             self.result_text_netstat.setText("Превышено время ожидания.")
         except Exception as error:
             self.result_text_netstat.setText(f"Ошибка: {error}")
+
+    # Добавление интервального вывода и обновление графа по последнему списку соединений.
+    def read_netstat_output(self):
+        output = bytes(self.netstat_process.readAllStandardOutput()).decode("cp866", errors="replace").replace("\r", "")
+        self.result_text_netstat.moveCursor(QTextCursor.MoveOperation.End)
+        self.result_text_netstat.insertPlainText(output)
+        # Новый заголовок начинает список заново. Сохраняем его на случай, если таблица придёт частями.
+        sections = re.split(
+            r"(?m)(?=^[ \t]*Активные подключения[ \t]*\n)",
+            self.netstat_graph_output + output
+        )
+        if len(sections) > 1:
+            self.netstat_graph_output = sections[-1]
+            self.draw_netstat_graph(self.netstat_graph_output)
+        else:
+            # Без таблицы сохраняем только незавершённую строку для поиска заголовка.
+            self.netstat_graph_output = sections[0].rsplit("\n", 1)[-1]
+
+    # Ошибка запуска команды в интервальном режиме.
+    def netstat_interval_error(self, error):
+        if error == QProcess.ProcessError.FailedToStart:
+            self.result_text_netstat.setPlainText(f"Ошибка запуска netstat: {self.netstat_process.errorString()}")
 # ГРАФЫ
     # Вкладка с графом
     def make_graph_tab(self, graph, legend, play_button=False):
