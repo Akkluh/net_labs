@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget, Q
 from PySide6.QtCore import Qt, QTimer, QPointF, QRectF, QProcess  # QProcess для интервального netstat
 from PySide6.QtGui import QPainter, QPen, QBrush, QColor, QTextCursor  # Курсор для добавления вывода netstat
 import re
+
 # Класс для рисования графа
 class GraphView(QGraphicsView):
     def __init__(self):
@@ -25,24 +26,26 @@ class GraphView(QGraphicsView):
 
     # Очистка графа
     def clear_graph(self):
-        self.timer.stop()
-        self.gscene.clear()
-        self.points = []
-        self.packet = None
+        self.timer.stop() # отсановка анимации
+        self.gscene.clear() # очистка графа
+        self.points = [] # очистка списка координат
+        self.packet = None # очищаем объект пакета
 
     # Добавление узла
     def add_node(self, pos, label, color, tip=""):
+        # Отрисовка круга
         node = self.gscene.addEllipse(-22, -22, 44, 44, QPen(Qt.GlobalColor.black), QBrush(QColor(color)))
-        node.setPos(pos)
+        node.setPos(pos) # устанавливаем объект на позицию
         node.setToolTip(tip)   # подсказка при наведении
         node.setZValue(1)      # узлы рисуются поверх линий
-        text = self.gscene.addSimpleText(label)
+        text = self.gscene.addSimpleText(label) # создлание подписи
         text.setBrush(self.palette().text())  # цвет текста берётся из темы системы
-        text.setPos(pos.x() - text.boundingRect().width() / 2, pos.y() + 26)
+        text.setPos(pos.x() - text.boundingRect().width() / 2, pos.y() + 26) # установка подписи на позицию
 
     # Добавление ребра между двумя точками
     def add_edge(self, a, b, color="#9e9e9e", label=""):
-        self.gscene.addLine(a.x(), a.y(), b.x(), b.y(), QPen(QColor(color), 2))
+        self.gscene.addLine(a.x(), a.y(), b.x(), b.y(), QPen(QColor(color), 2)) # создание линии
+        # Размещение подписи
         if label:
             text = self.gscene.addSimpleText(label)
             text.setBrush(self.palette().text())
@@ -50,10 +53,11 @@ class GraphView(QGraphicsView):
 
     # Подгонка масштаба
     def fit(self):
-        rect = self.gscene.itemsBoundingRect().adjusted(-60, -60, 60, 60)
-        # минимальный размер
+        rect = self.gscene.itemsBoundingRect().adjusted(-60, -60, 60, 60) # получаем прямоугольник который захватывает все элементы и расширяем его
+        # Минимальный размер
         rect = rect.united(QRectF(rect.center().x() - 300, rect.center().y() - 150, 600, 300))
         self.setSceneRect(rect)
+        #  Изменяет размер и сохраняет пропорции
         self.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
 
     # При изменении размера окна заново подгоняем масштаб
@@ -65,13 +69,15 @@ class GraphView(QGraphicsView):
     def draw_path(self, nodes):
         self.clear_graph()
         for i in range(len(nodes)):
-            row, col = divmod(i, 6)          # по 6 узлов в строке
+            row, col = divmod(i, 6) # по 6 узлов в строке
+            # "змейка": нечётные строки идут справа налево
             if row % 2 == 1:
-                col = 5 - col                # "змейка": нечётные строки идут справа налево
-            self.points.append(QPointF(col * 150, row * 120))
+                col = 5 - col
+            self.points.append(QPointF(col * 150, row * 120)) # расчёт координат
+        # Соединение соседних узлов
         for i in range(len(self.points) - 1):
             self.add_edge(self.points[i], self.points[i + 1])
-        for point, (label, color, tip) in zip(self.points, nodes):
+        for point, (label, color, tip) in zip(self.points, nodes): # одновременно перебираем несколько последовательностьей с помощью zip
             self.add_node(point, label, color, tip)
         self.fit()
 
@@ -82,12 +88,13 @@ class GraphView(QGraphicsView):
             self.gscene.addText("Нет соединений для отображения.\nПопробуйте включить только параметр -a или параметр -a и -n.")
             self.fit()
             return
+        # Сортировка узлов
         hosts = sorted(groups, key=lambda h: len(groups[h]), reverse=True)[:25]
         center = QPointF(0, 0)
         radius = 150 + 8 * len(hosts)
         for i, host in enumerate(hosts):
-            angle = 2 * math.pi * i / len(hosts)
-            pos = QPointF(radius * math.cos(angle), radius * math.sin(angle))
+            angle = 2 * math.pi * i / len(hosts) # вычисление угла
+            pos = QPointF(radius * math.cos(angle), radius * math.sin(angle)) # вычиление позиции
             lines = groups[host]
             # зелёное ребро, если есть установленное соединение
             color = "#4caf50" if any("ESTABLISHED" in l for l in lines) else "#9e9e9e"
@@ -99,18 +106,21 @@ class GraphView(QGraphicsView):
 
     # Запуск анимации
     def play(self):
+        # Анимация невозможна если узлов меньше 2
         if len(self.points) < 2:
             return
+        # Остановка и отчистка перед новым запуском
         self.timer.stop()
         if self.packet is not None:
             self.gscene.removeItem(self.packet)
         self.packet = self.gscene.addEllipse(-7, -7, 14, 14, QPen(Qt.GlobalColor.black), QBrush(QColor("#ffeb3b")))
         self.packet.setZValue(2)
-        self.route = self.points + self.points[-2::-1]  # туда и обратно
+        self.route = self.points + self.points[-2::-1] # туда и обратно
+        # Установка начального состояния
         self.segment = 0
         self.progress = 0.0
         self.packet.setPos(self.route[0])
-        self.timer.start(20)  # шаг анимации каждые 20 мс
+        self.timer.start(20) # шаг анимации каждые 20 мс
 
     # Один шаг анимации
     def move_packet(self):
@@ -130,19 +140,18 @@ class GraphView(QGraphicsView):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.tabs = QTabWidget()
+        self.tabs = QTabWidget() # виджет вкладок
         self.setCentralWidget(self.tabs)
-
+        # создание вкладок
         self.ping_tab = QWidget()
         self.ipconfig_tab = QWidget()
         self.pathping_tab = QWidget()
         self.netstat_tab = QWidget()
-        
         self.tabs.addTab(self.ping_tab, "Ping")
         self.tabs.addTab(self.ipconfig_tab, "IPConfig")
         self.tabs.addTab(self.pathping_tab, "PathPing")
         self.tabs.addTab(self.netstat_tab, "NetStat")
-
+        # вызов методов создания интерфейса вкладки
         self.create_ping_tab()
         self.create_ipconfig_tab()
         self.create_pathping_tab()
@@ -151,12 +160,12 @@ class MainWindow(QMainWindow):
 # Метод для создания вкладки Ping
     def create_ping_tab(self):
         layout = QVBoxLayout()
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(10)
+        layout.setContentsMargins(10, 10, 10, 10) # отступы
+        layout.setSpacing(10) # расстояние между элементами
         input_layout = QHBoxLayout()
         params_layout = QVBoxLayout()
         params_layout.setSpacing(8)
-
+        # поле ввода
         label = QLabel("IP-адрес или домен:")
 
         self.ip_input = QLineEdit()
@@ -213,6 +222,7 @@ class MainWindow(QMainWindow):
 
         # Флаг постоянной проверки (параметр -t)
         self.ping_t = QCheckBox("Постоянная проверка (-t)")
+        # взаимоисключение параметров -t и -n
         def toggle_ping_count(checked):
             self.ping_count_check.setEnabled(not checked)
             self.ping_count.setEnabled(not checked and self.ping_count_check.isChecked())
@@ -244,6 +254,7 @@ class MainWindow(QMainWindow):
 
         # функции для интерфейса
         def group_param(checkbox, spinbox): # группировка чекбоксов и счётчиков
+            # Объединяем чекбоксы и поля ввода в один виджет
             group = QWidget()
             group_layout = QHBoxLayout(group)
             group_layout.setContentsMargins(0, 0, 0, 0)
@@ -285,7 +296,7 @@ class MainWindow(QMainWindow):
         self.ping_table.setColumnCount(6)
         self.ping_table.setHorizontalHeaderLabels(["№", "IP-адрес", "Байты", "Время (мс)", "TTL", "Результат"])
         self.ping_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.ping_table.verticalHeader().setVisible(False)
+        self.ping_table.verticalHeader().setVisible(False) # скрывает стандартную номерацию
         self.ping_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
 
         # дополнительное поле вывода
@@ -302,15 +313,17 @@ class MainWindow(QMainWindow):
         splitter.setStretchFactor(1, 3)
         layout.addWidget(splitter, 1)
 
+        # установка компоновки на вкладку ping
         self.ping_tab.setLayout(layout)
 # Метод для обработки одной строки вывода ping
     def process_ping_result(self, result):
+        # извлечение ip
         ip_result = re.search(r"Ответ от (.+?): (.*)", result)
         if not ip_result:
             return None
-        bytes_result = re.search(r"байт=(\d+)", result)
-        time_result = re.search(r"время([=<])(\d+)", result)
-        ttl_result = re.search(r"TTL=(\d+)", result)
+        bytes_result = re.search(r"байт=(\d+)", result) # количество байтов
+        time_result = re.search(r"время([=<])(\d+)", result) # время
+        ttl_result = re.search(r"TTL=(\d+)", result) # TTL
         # Успешный ответ: есть и байты, и время, и TTL
         if bytes_result and time_result and ttl_result:
             time_value = int(time_result.group(2))
@@ -327,6 +340,7 @@ class MainWindow(QMainWindow):
                 "ttl": int(ttl_result.group(1)),
                 "status": "Успешно"
             }
+        # неуспешный ответ
         return {
             "ip": ip_result.group(1),
             "bytes": None,
@@ -337,8 +351,8 @@ class MainWindow(QMainWindow):
         }
     # Метод для добавления результата ping в таблицу
     def add_ping_result(self, result):
-        row = self.ping_table.rowCount()
-        self.ping_table.insertRow(row)
+        row = self.ping_table.rowCount() # текущее количество строк
+        self.ping_table.insertRow(row) # добавление строки по индексу
         self.ping_table.setItem(row, 0, QTableWidgetItem(str(row + 1)))
         self.ping_table.setItem(row, 1, QTableWidgetItem(result["ip"]))
         self.ping_table.setItem(row, 2, QTableWidgetItem(str(result["bytes"]) if result["bytes"] is not None else "---"))
@@ -347,16 +361,18 @@ class MainWindow(QMainWindow):
         self.ping_table.setItem(row, 5, QTableWidgetItem(result["status"]))
     # Метод для выполнения команды ping
     def ping_run(self):
-        sent_count = 0
-        receive_count = 0
-        total_time = 0
-        min_time = None
-        max_time = None
+        sent_count = 0 # количество отправленных запросов
+        receive_count = 0 # количество успешных ответов
+        total_time = 0 # сумма времени всех успешных ответов
+        min_time = None # минимальное время
+        max_time = None # максимальное время
         # Получение введенных пользователем данных
         ip = self.ip_input.text().strip()
+        # проверка на пустую строку
         if not ip:
             self.result_text.setText("Пожалуйста, введите IP-адрес или домен.")
             return
+        # провекра для маршрутизации для -j и -k
         route_hosts = self.ping_line_for_route.text().strip()
         route_type = self.ping_route_type.currentIndex()
         if route_type != 0 and not route_hosts:
@@ -399,11 +415,15 @@ class MainWindow(QMainWindow):
             command.extend(["-k", *route_hosts.split()])
         # добавление адреса
         command.append(ip)
+        # вывод комнады в консоль
         print("Команда: ", subprocess.list2cmdline(command))
+        # изменения состояний кнопок
         self.button.setEnabled(False)
         self.stop_button.setEnabled(True)
+        # полный вывод
         all_output = ""
         try:
+            # выполнение команды
             self.ping_command = subprocess.Popen(command, stdout=subprocess.PIPE, text=True, encoding='cp866', errors='replace')
             route_lines = []
             time_lines = []
@@ -411,7 +431,7 @@ class MainWindow(QMainWindow):
             get_name = None
             get_ip = None
             for output in self.ping_command.stdout:
-                QApplication.processEvents()
+                QApplication.processEvents() # обработка ожидающих событий
                 all_output += output
                 print("Полученная строка:", repr(output))
                 name_match = re.search(r"Обмен пакетами с\s+(.+?)\s+\[(.+?)\]", output)
@@ -560,26 +580,29 @@ class MainWindow(QMainWindow):
         adapters = [] # список всех адаптеров
         current_adapter = {} # словарь с информацией об адаптере
         last_key = None # последний параметр
-        parametr_space = None
+        parametr_space = None # количество пробелов
+        # разделяем текст на строки
         for adapter in result.splitlines():
             line = adapter.strip()
             spaces = len(adapter) - len(adapter.lstrip()) # подсчёт пробелов
+            # проверяем является ли строка адаптером
             if (line.lower().startswith("адаптер ") or line.lower().startswith("неизвестный адаптер ")) and line.endswith(":"):
                 # найден адаптер
-                name = line[:-1]
+                name = line[:-1] # имя адаптера
                 current_adapter = {"name": name}
                 adapters.append(current_adapter)
                 last_key = None
                 parametr_space = None
+            # обработка остальных строк
             else:
                 if parametr_space is None and ":" in line:
-                    parametr_space = spaces
+                    parametr_space = spaces # сохраняем пробелы
                 # обработка параметров
                 if spaces == parametr_space and current_adapter and ":" in line:
                     key, value = line.split(":", 1)
                     key = key.replace(".", "").strip()
                     current_adapter[key.strip()] = value.strip()
-                    last_key = key.strip()
+                    last_key = key.strip() # сохраняем параметр
                 # обработка параметров на следующей строке
                 elif parametr_space is not None and spaces > parametr_space and current_adapter and last_key:
                     current_adapter[last_key] += ", " + line.strip()
@@ -608,6 +631,7 @@ class MainWindow(QMainWindow):
     # Метод для выполнения команды ipconfig
     def ipconfig_run(self):
         try:
+            # создание вкладки полного вывода если её нет
             if self.adapter_tabs.indexOf(self.result_text_ipconfig) == -1:
                 self.adapter_tabs.addTab(self.result_text_ipconfig, "Полный вывод")
             # формирование команды
@@ -616,8 +640,8 @@ class MainWindow(QMainWindow):
             # проверяем нужно ли добавлять параметр
             if parametr != "default":
                 command_ipconfig.append(parametr)
-            adapter = self.ipconfig_adapter_input.text().strip()
-            classid = self.ipconfig_classid_input.text().strip()
+            adapter = self.ipconfig_adapter_input.text().strip() # получаем имя адаптера
+            classid = self.ipconfig_classid_input.text().strip() # получаем индетификатор класса DHCP
             # проверяем обязателен ли ввод адаптера
             if parametr in ["/showclassid", "/setclassid"] and not adapter:
                 self.result_text_ipconfig.setText("Необходимо указать имя сетевого адаптера")
@@ -662,7 +686,7 @@ class MainWindow(QMainWindow):
         input_layout = QHBoxLayout()
         params_layout = QVBoxLayout()
         params_layout.setSpacing(8)
-
+        # строка ввода
         label = QLabel("IP-адрес или домен:")
         self.pathping_input = QLineEdit()
         self.pathping_input.setPlaceholderText("Введите IP-адрес или домен:")
@@ -854,7 +878,7 @@ class MainWindow(QMainWindow):
             status = "Есть потери"
         else:
             status = "Норма"
-
+        # формирование словаря
         return {
             "hop": int(stat_result.group(1)),
             "ip": stat_result.group(9).strip() or f"Узел {stat_result.group(1)}",
@@ -892,24 +916,29 @@ class MainWindow(QMainWindow):
             )
         else:
             node_loss = "---"
-
+        # прыжок
         self.pathping_table.setItem(
             row, 0, QTableWidgetItem(str(result["hop"]))
         )
+        # ip
         self.pathping_table.setItem(
             row, 1, QTableWidgetItem(result["ip"])
         )
+        # время
         self.pathping_table.setItem(
             row, 2, QTableWidgetItem(
                 result["time"] if result["time"] is not None else "---"
             )
         )
+        # потери до узла
         self.pathping_table.setItem(
             row, 3, QTableWidgetItem(source_loss)
         )
+        # потери на узле
         self.pathping_table.setItem(
             row, 4, QTableWidgetItem(node_loss)
         )
+        # результат
         self.pathping_table.setItem(
             row, 5, QTableWidgetItem(result["status"])
         )
@@ -918,6 +947,7 @@ class MainWindow(QMainWindow):
     def pathping_run(self):
         # получение введенных пользователем данных
         ip = self.pathping_input.text().strip()
+        # проверка на ввод ip
         if not ip:
             self.result_text_pathping.setText("Пожалуйста, введите IP-адрес или домен.")
             return
@@ -969,8 +999,8 @@ class MainWindow(QMainWindow):
         QApplication.processEvents()  # обновление окна, чтобы сообщение было видно
 
         try:
+            # запуск команды
             result = subprocess.run(command, capture_output=True, text=True, encoding='cp866', errors='replace')
-
             # Словарь результатов, ключом является номер перехода
             hops = {}
             # Флаг первой фазы выполнения pathping
@@ -1099,8 +1129,9 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(10)
 
-        param_layout = QGridLayout()
+        param_layout = QGridLayout() # размещение ввиде сетки
 
+        # размещение параметров
         self.netstat_a = QCheckBox("-a (Все соединения)")
         self.netstat_e = QCheckBox("-e (Статистика Ethernet)")
         self.netstat_n = QCheckBox("-n (Числовой формат)")
@@ -1117,6 +1148,7 @@ class MainWindow(QMainWindow):
 
         layout.addLayout(param_layout)
 
+        # выбор протокола
         protocol_layout = QHBoxLayout()
         protocol_layout.addWidget(QLabel("Протокол (-p):"))  # «Все протоколы» оставляет команду без -p.
         self.netstat_protocol = QComboBox()
@@ -1125,16 +1157,17 @@ class MainWindow(QMainWindow):
 
         layout.addLayout(protocol_layout)
 
-        # Нулевой интервал означает разовый вывод, положительный передаётся в netstat.
+        # интервал
+        # Нулевой интервал означает разовый вывод
         interval_layout = QHBoxLayout()
         interval_layout.addWidget(QLabel("Интервал обновления (0 — один раз):"))
         self.netstat_interval = QSpinBox()
         self.netstat_interval.setRange(0, 3600)
-        self.netstat_interval.setSuffix(" с")
+        self.netstat_interval.setSuffix(" с") # добавление единицы измерения
         interval_layout.addWidget(self.netstat_interval)
         layout.addLayout(interval_layout)
 
-        # Кнопки запуска и остановки интервального режима.
+        # Кнопки запуска и остановки
         button_layout = QHBoxLayout()
         self.netstat_button = QPushButton("Получить информацию")
         self.netstat_button.clicked.connect(self.netstat_run)
@@ -1156,14 +1189,17 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.netstat_tabs)
 
         self.netstat_tab.setLayout(layout)
-        # С интервалом netstat работает до остановки, поэтому читаем его вывод через Qt.
+
+        # С интервалом netstat работает до остановки, поэтому читаем его вывод через Qt
+        # Создание QProcess
         self.netstat_process = QProcess(self)
-        self.netstat_process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
-        self.netstat_process.readyReadStandardOutput.connect(self.read_netstat_output)
-        self.netstat_process.errorOccurred.connect(self.netstat_interval_error)
-        self.netstat_process.stateChanged.connect(self.update_netstat_fields)
-        self.netstat_stop_button.clicked.connect(self.netstat_process.kill)
-        self.netstat_s.toggled.connect(self.update_netstat_fields)  # Обновляем допустимые протоколы при смене режима.
+        self.netstat_process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels) # объединение потоков
+        # Подключение трех обработчиков событий
+        self.netstat_process.readyReadStandardOutput.connect(self.read_netstat_output) # при появление новых данных автоматически их читатет
+        self.netstat_process.errorOccurred.connect(self.netstat_interval_error) # при поялвение ошибок
+        self.netstat_process.stateChanged.connect(self.update_netstat_fields) # при изменение состояния
+        self.netstat_stop_button.clicked.connect(self.netstat_process.kill) # остановка через kill
+        self.netstat_s.toggled.connect(self.update_netstat_fields)  # обновляем допустимые протоколы при смене режима
         self.update_netstat_fields()
     # Обновление поля протокола и кнопок netstat.
     def update_netstat_fields(self):
@@ -1175,7 +1211,8 @@ class MainWindow(QMainWindow):
             self.netstat_protocol.setCurrentIndex(0)
 
         # Пока идёт обновление, можно остановить текущий запуск.
-        running = self.netstat_process.state() != QProcess.ProcessState.NotRunning
+        running = self.netstat_process.state() != QProcess.ProcessState.NotRunning # получаем статус
+        # Определяем доступность кнопок в зависимости от состояния
         self.netstat_button.setEnabled(not running)
         self.netstat_stop_button.setEnabled(running)
     # Метод для выполнения команды netstat
@@ -1201,19 +1238,21 @@ class MainWindow(QMainWindow):
             # -o
             if self.netstat_o.isChecked():
                 command.append("-o")
-            # -p фильтрует соединения без -s и статистику вместе с -s.
+            # -p фильтрует соединения без -s и статистику вместе с -s
             protocol = self.netstat_protocol.currentText()
             if protocol != "Все протоколы":
                 command.extend(["-p", protocol])
-            # Положительный интервал передаётся последним аргументом в секундах.
-            interval = self.netstat_interval.value()
+            # Положительный интервал передаётся последним аргументом в секундах
+            interval = self.netstat_interval.value() # получаем значение интервала
             if interval:
-                self.result_text_netstat.clear()
-                self.draw_netstat_graph("")  # Сбрасываем граф перед получением первого списка.
-                self.netstat_graph_output = ""  # Текст текущего списка соединений для графа.
+                self.result_text_netstat.clear() # очистка текстового поля
+                self.draw_netstat_graph("")  # сбрасываем граф перед получением первого списка
+                self.netstat_graph_output = ""  # текст текущего списка соединений для графа
+                # Запуск команды через start
                 self.netstat_process.start(command[0], command[1:] + [str(interval)])
+                # Завершаем метод
                 return
-            # Разовый вызов по-прежнему выполняется синхронно.
+            # Разовый вызов
             result = subprocess.run(command, capture_output=True, text=True, timeout=360, encoding='cp866', errors='replace')
             output = result.stdout
             if result.stderr:
@@ -1221,19 +1260,20 @@ class MainWindow(QMainWindow):
             if result.returncode != 0:
                 self.result_text_netstat.setPlainText(f"Ошибка выполнения программы:\n{output}")
             else:
-                self.result_text_netstat.setPlainText(output)
-            self.draw_netstat_graph(output)
+                self.result_text_netstat.setPlainText(output) # вывод
+            self.draw_netstat_graph(output) # отрисовка графа
         except subprocess.TimeoutExpired:
             self.result_text_netstat.setText("Превышено время ожидания.")
         except Exception as error:
             self.result_text_netstat.setText(f"Ошибка: {error}")
 
-    # Добавление интервального вывода и обновление графа по последнему списку соединений.
+    # Добавление интервального вывода и обновление графа по последнему списку соединений
     def read_netstat_output(self):
         output = bytes(self.netstat_process.readAllStandardOutput()).decode("cp866", errors="replace").replace("\r", "")
+        # Записываем вывод в конец
         self.result_text_netstat.moveCursor(QTextCursor.MoveOperation.End)
         self.result_text_netstat.insertPlainText(output)
-        # Новый заголовок начинает список заново. Сохраняем его на случай, если таблица придёт частями.
+        # Новый заголовок начинает список заново. Сохраняем его на случай, если таблица придёт частями
         sections = re.split(
             r"(?m)(?=^[ \t]*Активные подключения[ \t]*\n)",
             self.netstat_graph_output + output
@@ -1242,10 +1282,10 @@ class MainWindow(QMainWindow):
             self.netstat_graph_output = sections[-1]
             self.draw_netstat_graph(self.netstat_graph_output)
         else:
-            # Без таблицы сохраняем только незавершённую строку для поиска заголовка.
+            # Без таблицы сохраняем только незавершённую строку для поиска заголовка
             self.netstat_graph_output = sections[0].rsplit("\n", 1)[-1]
 
-    # Ошибка запуска команды в интервальном режиме.
+    # Ошибка запуска команды в интервальном режиме
     def netstat_interval_error(self, error):
         if error == QProcess.ProcessError.FailedToStart:
             self.result_text_netstat.setPlainText(f"Ошибка запуска netstat: {self.netstat_process.errorString()}")
@@ -1264,7 +1304,6 @@ class MainWindow(QMainWindow):
         layout.addWidget(legend_label)
         return tab
 
-    
     # Построение графа маршрута по уже заполненной таблице pathping
     def draw_pathping_graph(self):
         if self.pathping_table.rowCount() == 0:
@@ -1312,17 +1351,17 @@ window.setWindowTitle("Network Analyzer")
 window.resize(1200, 1000)
 window.show()
 # для теста
-window.pathping_graph.draw_path([
-    ("Этот компьютер", "#2196f3", ""),
-    ("192.168.1.1", "#4caf50", "Роутер"),
-    ("Узел 2", "#f44336", "Не отвечает"),
-    ("172.27.0.109", "#4caf50", ""),
-    ("172.27.0.85", "#4caf50", ""),
-    ("85.175.221.233", "#4caf50", ""),
-    ("Узел 6", "#f44336", "Не отвечает"),
-    ("173.194.121.4", "#ff9800", "Есть потери"),
-    ("142.250.236.117", "#4caf50", ""),
-    ("142.251.48.45", "#4caf50", ""),
-    ("dns.google", "#4caf50", "Цель 8.8.8.8"),
-])
+# window.pathping_graph.draw_path([
+#     ("Этот компьютер", "#2196f3", ""),
+#     ("192.168.1.1", "#4caf50", "Роутер"),
+#     ("Узел 2", "#f44336", "Не отвечает"),
+#     ("172.27.0.109", "#4caf50", ""),
+#     ("172.27.0.85", "#4caf50", ""),
+#     ("85.175.221.233", "#4caf50", ""),
+#     ("Узел 6", "#f44336", "Не отвечает"),
+#     ("173.194.121.4", "#ff9800", "Есть потери"),
+#     ("142.250.236.117", "#4caf50", ""),
+#     ("142.251.48.45", "#4caf50", ""),
+#     ("dns.google", "#4caf50", "Цель 8.8.8.8"),
+# ])
 sys.exit(app.exec())
